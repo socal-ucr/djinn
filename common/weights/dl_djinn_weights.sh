@@ -2,7 +2,7 @@
 
 fname=djinn-weights-1.0.tar.gz
 
-wget http://web.eecs.umich.edu/~jahausw/download/$fname
+wget http://www.cs.ucr.edu/~krang006/downloads/$fname
 
 tar xvzf $fname
 
