@@ -1,0 +1,20 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	0	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.9~svn20110310	//
+CAFFE_UTIL_DEVICE_ALTERNATE_H_	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define CAFFE_UTIL_DEVICE_ALTERNATE_H_$/;"	macro	line:2
+NO_GPU	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define NO_GPU /;"	macro	line:10
+STUB_GPU	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define STUB_GPU(/;"	macro	line:12
+STUB_GPU_FORWARD	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define STUB_GPU_FORWARD(/;"	macro	line:21
+STUB_GPU_BACKWARD	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define STUB_GPU_BACKWARD(/;"	macro	line:26
+CUDA_CHECK	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define CUDA_CHECK(/;"	macro	line:48
+CUBLAS_CHECK	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define CUBLAS_CHECK(/;"	macro	line:55
+CURAND_CHECK	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define CURAND_CHECK(/;"	macro	line:62
+CUDA_KERNEL_LOOP	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define CUDA_KERNEL_LOOP(/;"	macro	line:70
+CUDA_POST_KERNEL_CHECK	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^#define CUDA_POST_KERNEL_CHECK /;"	macro	line:76
+caffe	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^namespace caffe {$/;"	namespace	line:78
+CAFFE_CUDA_NUM_THREADS	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^    const int CAFFE_CUDA_NUM_THREADS = 1024;$/;"	member	line:88	namespace:caffe
+CAFFE_CUDA_NUM_THREADS	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^    const int CAFFE_CUDA_NUM_THREADS = 512;$/;"	member	line:90	namespace:caffe
+CAFFE_GET_BLOCKS	/home/mchow/Workspace/yue/caffe-1.0/include/caffe/util/device_alternate.hpp	/^inline int CAFFE_GET_BLOCKS(const int N) {$/;"	function	line:94	namespace:caffe	signature:(const int N)
