@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <nvml.h>
 #include  <signal.h>
+#include <limits.h>
 
 
 #include "boost/program_options.hpp"
@@ -37,7 +38,7 @@ using namespace std;
 namespace po = boost::program_options;
 
 map<string, Net<float>*> nets;
-unsigned int avg=0, peak=0, minimum=1000000000;
+int avg=0, peak=0, minimum=INT_MAX;
 bool debug;
 bool gpu;
 
@@ -47,7 +48,7 @@ void  INThandler(int sig)
 
     signal(sig, SIG_IGN);
     printf("CLEAN UP\n");
-	printf("Average = %u W\nPeak = %u W\nMin = %u W\n", avg/1000, peak/1000,
+	printf("Average = %d W\nPeak = %d W\nMin = %d W\n", avg/1000, peak/1000,
             minimum/1000);
     nvmlShutdown();
     exit(1);
@@ -91,14 +92,15 @@ void *record_power(void* args)
 {
     nvmlDevice_t* device = (nvmlDevice_t*)args;
     unsigned int power;
-    unsigned int n=1;
-    nvmlDeviceGetPowerUsage(*device, &avg);
+    int n=1;
+    nvmlDeviceGetPowerUsage(*device, &power);
+    avg = (int)power;
 	while(1)
     {
         nvmlDeviceGetPowerUsage(*device, &power);
-        avg = (power+(n*avg))/++n;
-        if (peak<power) peak=power;
-        if (minimum>power) minimum=power;
+        avg = avg+(((int)power-avg)/++n);
+        if (peak<(int)power) peak=(int)power;
+        if (minimum>(int)power) minimum=(int)power;
         usleep(10);
     }
 	return 0;
