@@ -23,6 +23,10 @@
 #include <errno.h>
 #include <map>
 #include <glog/logging.h>
+#include <errno.h>
+#include <nvml.h>
+#include  <signal.h>
+
 
 #include "boost/program_options.hpp"
 #include "socket.h"
@@ -33,8 +37,76 @@ using namespace std;
 namespace po = boost::program_options;
 
 map<string, Net<float>*> nets;
+unsigned int avg=0, peak=0, minimum=1000000000;
 bool debug;
 bool gpu;
+
+
+void  INThandler(int sig)
+{
+
+    signal(sig, SIG_IGN);
+    printf("CLEAN UP\n");
+	printf("Average = %u W\nPeak = %u W\nMin = %u W\n", avg/1000, peak/1000,
+            minimum/1000);
+    nvmlShutdown();
+    exit(1);
+}
+
+
+
+const char * convertToComputeModeString(nvmlComputeMode_t mode)
+{
+     switch (mode)
+     {
+         case NVML_COMPUTEMODE_DEFAULT:
+             return "Default";
+         case NVML_COMPUTEMODE_EXCLUSIVE_THREAD:
+             return "Exclusive_Thread";
+         case NVML_COMPUTEMODE_PROHIBITED:
+             return "Prohibited";
+         case NVML_COMPUTEMODE_EXCLUSIVE_PROCESS:
+             return "Exclusive Process";
+         default:
+             return "Unknown";
+     }
+ }
+
+void nvmlChkError(nvmlReturn_t result, const char * error)
+{
+    if (NVML_SUCCESS != result)
+    {
+         printf("ERROR @ %s: %s\n", error, nvmlErrorString(result));
+
+        result = nvmlShutdown();
+        if (NVML_SUCCESS != result)
+            printf("Failed to shutdown NVML: %s\n", nvmlErrorString(result));
+ 
+        exit(1);
+    } 
+}
+
+
+void *record_power(void* args)
+{
+    nvmlDevice_t* device = (nvmlDevice_t*)args;
+    unsigned int power;
+    unsigned int n=1;
+    nvmlDeviceGetPowerUsage(*device, &avg);
+	while(1)
+    {
+        nvmlDeviceGetPowerUsage(*device, &power);
+        avg = (power+(n*avg))/++n;
+        if (peak<power) peak=power;
+        if (minimum>power) minimum=power;
+        usleep(10);
+    }
+	return 0;
+}
+
+
+FILE * pFile;
+pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
 po::variables_map parse_opts(int ac, char** av) {
   // Declare the supported options.
@@ -69,6 +141,38 @@ po::variables_map parse_opts(int ac, char** av) {
 }
 
 int main(int argc, char* argv[]) {
+
+signal(SIGINT, INThandler);
+//initialize nvml
+    nvmlReturn_t result;
+    unsigned int device_count;
+    nvmlDevice_t device;
+    nvmlChkError(nvmlInit(), "nvmlInit");
+
+    nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
+
+    nvmlChkError(nvmlDeviceGetHandleByIndex(device_count-1, &device), "GetHandle");
+    
+    nvmlChkError(nvmlDeviceSetPersistenceMode(device,NVML_FEATURE_ENABLED),"EnablePersistence");
+//    nvmlChkError(nvmlDeviceSetAutoBoostedClocksEnabled(device,NVML_FEATURE_ENABLED),"DisableAutoBoost");
+    //get graphics clock info
+    unsigned int memClocksMHz[4];
+    unsigned int graphicClocksMHz[4][150];
+    unsigned int graphicClockCount[4] = {150, 150, 150, 150};
+    unsigned int memClockCount = 4;
+    nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
+
+    for(int i = 0; i < memClockCount; i++)
+    {
+        nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
+
+    }
+
+   nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][0]),"SetClocks");
+  pthread_t t_rp;
+  pthread_create(&t_rp, NULL, record_power, &device);
+
+
   // Main thread for the server
   // Spawn a new thread for each request
   po::variables_map vm = parse_opts(argc, argv);
@@ -99,9 +203,16 @@ int main(int argc, char* argv[]) {
   int socketfd = SERVER_init(vm["portno"].as<int>());
 
   // Listen on socket
-  listen(socketfd, 10);
+  listen(socketfd, 1000);
   LOG(INFO) << "Server is listening for requests on " << vm["portno"].as<int>();
 
+
+  //Create log file
+  pFile = fopen("out.txt","w");
+  if(pFile == NULL){
+	LOG(INFO) << "Could not create out file";
+	return 0;
+	}
   // Main Loop
   int thread_cnt = 0;
   while (1) {
@@ -109,8 +220,12 @@ int main(int argc, char* argv[]) {
     int client_sock = accept(socketfd, (sockaddr*)0, (unsigned int*)0);
 
     if (client_sock == -1) {
+        int errsv = errno;
+
       LOG(ERROR) << "Failed to accept.\n";
-      continue;
+      LOG(ERROR) << errsv;
+      LOG(ERROR) << thread_cnt;
+      break;
     } else
       new_thread_id = request_thread_init(client_sock);
 

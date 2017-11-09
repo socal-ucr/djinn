@@ -20,17 +20,26 @@
 #include <ctime>
 #include <cmath>
 #include <glog/logging.h>
+#include <stdio.h>
 #include <boost/chrono/thread_clock.hpp>
+#include <string>
 
 #include "timer.h"
 #include "thread.h"
 
+
 extern map<string, Net<float>*> nets;
 extern bool debug;
 extern bool gpu;
+extern FILE * pFile;
+extern pthread_rwlock_t output_rwlock;
+
+
 
 void SERVICE_fwd(float* in, int in_size, float* out, int out_size,
                  Net<float>* net) {
+
+struct timeval t1, t2;
   string net_name = net->name();
   STATS_INIT("service", "DjiNN service inference");
   PRINT_STAT_STRING("network", net_name.c_str());
@@ -43,14 +52,35 @@ void SERVICE_fwd(float* in, int in_size, float* out, int out_size,
   float loss;
   vector<Blob<float>*> in_blobs = net->input_blobs();
 
-  tic();
+  //tic();
+
+    gettimeofday(&t1, NULL);
   in_blobs[0]->set_cpu_data(in);
   vector<Blob<float>*> out_blobs = net->ForwardPrefilled(&loss);
   memcpy(out, out_blobs[0]->cpu_data(), sizeof(float));
+	
+  //double time = toc();
 
-  PRINT_STAT_DOUBLE("inference latency", toc());
+   gettimeofday(&t2, NULL);
+    double elapsedTime;
+    elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
+    elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
+
+  PRINT_STAT_DOUBLE("inference latency", elapsedTime);
+
 
   STATS_END();
+
+
+  std::string temp = std::to_string(elapsedTime);
+
+  //write to outputfile
+  printf("WRITE\n");
+  pthread_rwlock_wrlock(&output_rwlock);
+  fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
+  fwrite("\n", sizeof(char), 1, pFile);
+  fflush(pFile);
+  pthread_rwlock_unlock(&output_rwlock);
 
   if (out_size != out_blobs[0]->count())
     LOG(FATAL) << "out_size =! out_blobs[0]->count())";
@@ -73,6 +103,7 @@ pthread_t request_thread_init(int sock) {
 }
 
 void* request_handler(void* sock) {
+
   int socknum = (intptr_t)sock;
 
   // 1. Client sends the application type
@@ -111,7 +142,7 @@ void* request_handler(void* sock) {
   // 3. Send back the result
   // 4. Repeat 1-3
 
-  // Warmup: used to move the network to the device for the first time
+  // Warmup: used to move: the network to the device for the first time
   // In all subsequent forward passes, the trained model resides on the
   // device (GPU)
   bool warmup = true;
@@ -144,6 +175,6 @@ void* request_handler(void* sock) {
 
   free(in);
   free(out);
-
+  pthread_exit((void*)0);
   return (void*)0;
 }
