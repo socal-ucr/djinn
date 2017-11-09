@@ -2,7 +2,7 @@ COMMON=../common
 include $(COMMON)/Makefile.config
 
 CXX = g++
-CXX_FLAGS  = -g \
+CXX_FLAGS  = -std=c++11 -g \
 						 $(INCLUDE_DIRS) \
 						 -fpermissive \
 						 -I$(COMMON)/include \
@@ -14,6 +14,7 @@ ifeq ($(CPU_ONLY), 1)
 endif
 
 LINK_FLAGS = $(LIBRARY_DIRS) \
+			 			 -lnvidia-ml \
 						 -lpthread \
 						 -ldl \
 						 -lrt \
