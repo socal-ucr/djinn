@@ -39,6 +39,8 @@ common/Makefile.config
 */data/*
 */log/*
 */voxforge_data/*
+*/flandmark.zip
+*/flandmark-master
 
 # csvs and txts
 *.csv
