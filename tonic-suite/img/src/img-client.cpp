@@ -19,6 +19,8 @@
 #include <fstream>
 #include <stdio.h>
 #include <sys/time.h>
+#include <unistd.h>
+#include <sys/time.h>
 
 #include "opencv2/opencv.hpp"
 #include "boost/program_options.hpp"
@@ -26,12 +28,98 @@
 #include "align.h"
 #include "socket.h"
 #include "tonic.h"
+#include <pthread.h>
+
 
 using namespace std;
 using namespace cv;
 
+TonicSuiteApp app;
+pthread_t* threads;
+
+
+
+FILE * pFile;
+pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
+
+/*
+void tic(void) { gettimeofday(&t1, NULL); }
+
+double toc(void) {
+   gettimeofday(&t2, NULL);
+   double elapsedTime;
+   elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
+   elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
+ 
+   return elapsedTime;
+ }
+*/
+
+unsigned int microseconds = 1000000;
 namespace po = boost::program_options;
 struct timeval tv1, tv2;
+
+unsigned int RPS;
+unsigned int seconds;
+unsigned int total_requests;
+double sleep_time;
+void* create_thread_socket(void *args)
+{
+   int socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
+
+   float* preds = (float*)malloc(app.pl.num * sizeof(float));
+
+   for(int i = 0; i < seconds; i++)
+{
+    SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
+
+    // send len
+    SOCKET_txsize(socketfd, app.pl.num * app.pl.size);
+
+    // send image(s)
+    SOCKET_send(socketfd, (char*)app.pl.data,
+                app.pl.num * app.pl.size * sizeof(float), 0);
+
+    usleep(microseconds);
+    //SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float),
+    //               0);
+    }
+for(int i = 0; i < seconds;i ++)
+{
+	SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float),
+                   0);
+}
+    SOCKET_close(app.socketfd, 0);
+
+   free(preds);
+
+    //write to outputfile
+/*
+    pthread_rwlock_wrlock(&output_rwlock);
+    fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
+    fwrite("\n", sizeof(char), 1, pFile);
+    fflush(pFile);
+    pthread_rwlock_unlock(&output_rwlock);
+*/
+    pthread_exit(NULL);
+
+}
+
+void reset_djinn()
+{
+    char recvd[MAX_REQ_SIZE], *done;
+    LOG(INFO) << "Sending Signal" << endl;
+    done = (char*)"DONE";
+    int socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
+    SOCKET_send(socketfd, done, MAX_REQ_SIZE, 0);
+    LOG(INFO) << "Sending Complete" << endl;
+    SOCKET_receive(socketfd, recvd, MAX_REQ_SIZE, 0);
+    LOG(INFO) << "Received " << recvd << endl;
+    if (strcmp(recvd, "OK") == 0)
+        LOG(INFO) << "Finished processing all requests successfully"<<endl;
+    SOCKET_close(socketfd, 0);
+    exit(1);
+}
 
 po::variables_map parse_opts(int ac, char** av) {
   // Declare the supported options.
@@ -46,7 +134,11 @@ po::variables_map parse_opts(int ac, char** av) {
       "weights,w", po::value<string>()->default_value("imc.caffemodel"),
       "Pretrained weights (.caffemodel)")(
       "input,i", po::value<string>()->default_value("imc-list.txt"),
-      "List of input images (1 jpg/line)")
+      "List of input images (1 jpg/line)")(
+      "rps,r", po::value<int>()->default_value(1),
+      "Requests per Second")(
+      "seconds,s", po::value<int>()->default_value(1),
+      "Time program will run for in seconds")
 
       ("djinn,d", po::value<bool>()->default_value(false),
        "Use DjiNN service?")("hostname,o",
@@ -79,11 +171,11 @@ po::variables_map parse_opts(int ac, char** av) {
 }
 
 int main(int argc, char** argv) {
+
   po::variables_map vm = parse_opts(argc, argv);
 
   bool debug = vm["debug"].as<bool>();
 
-  TonicSuiteApp app;
   app.task = vm["task"].as<string>();
   app.network =
       vm["common"].as<string>() + "configs/" + vm["network"].as<string>();
@@ -91,6 +183,13 @@ int main(int argc, char** argv) {
       vm["common"].as<string>() + "weights/" + vm["weights"].as<string>();
   app.input = vm["input"].as<string>();
 
+  RPS = vm["rps"].as<int>();
+  seconds = vm["seconds"].as<int>();
+  total_requests = RPS * seconds;
+  sleep_time = (1000000.0f / double(RPS));
+
+  
+  threads = (pthread_t*)malloc(sizeof(pthread_t)*RPS);
   // DjiNN service or local?
   app.djinn = vm["djinn"].as<bool>();
   app.gpu = vm["gpu"].as<bool>();
@@ -98,8 +197,8 @@ int main(int argc, char** argv) {
   if (app.djinn) {
     app.hostname = vm["hostname"].as<string>();
     app.portno = vm["portno"].as<int>();
-    app.socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, debug);
-    if (app.socketfd < 0) exit(0);
+    //ddapp.socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, debug);
+    //if (app.socketfd < 0) exit(0);
   } else {
     app.net = new Net<float>(app.network);
     app.net->CopyTrainedLayersFrom(app.weights);
@@ -182,8 +281,27 @@ int main(int argc, char** argv) {
     }
     ++img_count;
   }
-
+/*
+	//Create log file
+   pFile = fopen("out.txt","w");
+   if(pFile == NULL){
+         LOG(INFO) << "Could not create out file";
+         return 0;
+         }
+*/
   if (app.djinn) {
+
+  for(int i = 0; i < RPS; i++)
+  {
+	pthread_create(threads+i,NULL,create_thread_socket,NULL);
+  }
+
+   for (int i=0; i < RPS; i++)
+        pthread_join(threads[i], NULL);
+
+   reset_djinn();
+/*
+    for (int i=0dd; i<seconds; i++) 
     SOCKET_send(app.socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, debug);
 
     // send len
@@ -195,7 +313,12 @@ int main(int argc, char** argv) {
 
     SOCKET_receive(app.socketfd, (char*)preds, app.pl.num * sizeof(float),
                    debug);
+
+    usleep(microseconds);		
+    
     SOCKET_close(app.socketfd, debug);
+
+*/
   } else {
     float loss;
     reshape(app.net, app.pl.num * app.pl.size);
@@ -215,6 +338,6 @@ int main(int argc, char** argv) {
   if (!app.djinn) free(app.net);
   free(app.pl.data);
   free(preds);
-
+  free(threads);
   return 0;
 }
