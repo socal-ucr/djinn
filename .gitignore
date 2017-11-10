@@ -39,8 +39,7 @@ common/Makefile.config
 */data/*
 */log/*
 */voxforge_data/*
-*/flandmark.zip
-*/flandmark-master
+tonic-suite/img/flandmark*
 
 # csvs and txts
 *.csv
