@@ -40,8 +40,9 @@ using namespace std;
 namespace po = boost::program_options;
 
 map<string, Net<float>*> nets;
-int avg=0, peak=0, minimum=INT_MAX;
-bool reset_power_stats = false;
+int power_avg=0, power_peak=0;
+int clock_avg=0, clock_peak=0;
+bool reset_stats = false;
 int TBReductionFactor;
 bool debug;
 bool gpu;
@@ -57,8 +58,8 @@ void  INThandler(int sig)
 
     signal(sig, SIG_IGN);
     printf("CLEAN UP\n");
-	printf("Average = %d W\nPeak = %d W\nMin = %d W\n", avg/1000, peak/1000,
-            minimum/1000);
+    printf("Average = %d W\nPeak = %d W\n", power_avg/1000, power_peak/1000);
+    printf("Average = %d MHz\nPeak = %d MHz\n", clock_avg, clock_peak);
     nvmlShutdown();
     exit(1);
 }
@@ -100,14 +101,21 @@ void nvmlChkError(nvmlReturn_t result, const char * error)
 void *record_power(void* args)
 {
     nvmlDevice_t* device = (nvmlDevice_t*)args;
+
+    //POWER
     unsigned int power;
-    int n=1;
     nvmlDeviceGetPowerUsage(*device, &power);
-    avg = (int)power;
+    power_avg = (int)power;
+
+    //SM FREQUENCY
+    unsigned int clock;
+    nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
+    clock_avg = (int)clock;
    // caffe::THREAD_BLOCK_MODIFIER = 1;
+    int n=1;
     while(1)
     {
-        if(reset_power_stats)
+        if(reset_stats)
         {
             pthread_rwlock_wrlock(&output_rwlock);
             fclose (pFile);
@@ -118,16 +126,27 @@ void *record_power(void* args)
             outfileName = std::to_string(RPS[rps_index]) + ".out";
             pFile = fopen(outfileName.c_str(),"w");
             pthread_rwlock_unlock(&output_rwlock);
-            avg=power;
+
+            //POWER
+            power_avg=power;
+            power_peak=0;
+
+            //SM FREQUENCY
+            clock_avg=clock;
+            clock_peak=0;
+
             n=1;
-            peak=0;
-            minimum=INT_MAX;
-            reset_power_stats = false;
+            reset_stats = false;
         }
+        //POWER
         nvmlDeviceGetPowerUsage(*device, &power);
-        avg = avg+(((int)power-avg)/++n);
-        if (peak<(int)power) peak=(int)power;
-        if (minimum>(int)power) minimum=(int)power;
+        power_avg = power_avg+(((int)power-power_avg)/++n);
+        if (power_peak<(int)power) power_peak=(int)power;
+
+        //SM FREQUENCY
+        nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
+        clock_avg = clock_avg+(((int)clock-clock_avg)/++n);
+        if (clock_peak<(int)clock) clock_peak=(int)clock;
         usleep(1000);
     }
 	return 0;
@@ -143,7 +162,9 @@ po::variables_map parse_opts(int ac, char** av) {
       "portno,p", po::value<int>()->default_value(8080),
       "Port to open DjiNN on")(
       "TBReductionFactor,t", po::value<int>()->default_value(1),
-      "Reduce the # of TB by factor of value")
+      "Reduce the # of TB by factor of value")(
+      "clock,cl", po::value<int>()->default_value(-1),
+      "Set Clock state 0-18,-1 for default")
       ("nets,n", po::value<string>()->default_value("nets.txt"),
        "File with list of network configs (.prototxt/line)")(
           "weights,w", po::value<string>()->default_value("weights/"),
@@ -194,7 +215,7 @@ signal(SIGINT, INThandler);
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
     }
 
-  nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[1]]),"SetClocks");
+    
 
 
   pthread_t t_rp;
@@ -213,6 +234,11 @@ signal(SIGINT, INThandler);
     Caffe::set_mode(Caffe::CPU);
    
   TBReductionFactor = vm["TBReductionFactor"].as<int>();
+
+  int fState = vm["clock"].as<int>();
+  if (fState != -1)
+     nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
+
   // load all models at init
   ifstream file(vm["nets"].as<string>().c_str());
   string net_name;
@@ -243,6 +269,11 @@ signal(SIGINT, INThandler);
 	LOG(INFO) << "Could not create out file";
 	return 0;
 	}
+    FILE *power_stats = fopen("power_stats.out", "w");
+    std::string stats = "power_avg,power_peak,clock_avg,clock_peak";
+    fwrite(stats.c_str(), sizeof(char), stats.length(), power_stats);
+    fflush(power_stats);
+    fclose(power_stats);
   // Main Loop
   int thread_cnt = 0;
   while (1) {

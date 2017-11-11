@@ -35,8 +35,9 @@ extern bool gpu;
 extern FILE * pFile;
 extern pthread_rwlock_t output_rwlock;
 
-extern int avg, peak;
-extern bool reset_power_stats;
+extern int power_avg, power_peak;
+extern int clock_avg, clock_peak;
+extern bool reset_stats;
 
 
 void SERVICE_fwd(float* in, int in_size, float* out, int out_size,
@@ -113,13 +114,13 @@ void* request_handler(void* sock) {
   // 3. Client sends data
 
   char req_name[MAX_REQ_SIZE];
-  char *ok;
-  ok= (char*)"OK";
   SOCKET_receive(socknum, (char*)&req_name, MAX_REQ_SIZE, debug);
   printf("Checking if djinn has to be reset \n");
   //LOG(ERROR) << "Checking if Djinn has to be reset " << req_name << " " << (char*)req_name << endl;
   if (strcmp(req_name, "DONE") == 0)
   {
+        char *ok;
+        ok= (char*)"OK";
         printf("Done signal received\n");
         SOCKET_send(socknum, ok, MAX_REQ_SIZE, 0);
         LOG(ERROR) << "Reset flag received. Time to reset djinn!!" << endl;
@@ -129,14 +130,24 @@ void* request_handler(void* sock) {
             LOG(INFO) << "Cannot create stats file" << endl;
             raise(2);
         }
-        std::string temp_avg  = std::to_string(avg/1000);
-        std::string temp_peak  = std::to_string(peak/1000);
-        fwrite(temp_avg.c_str(), sizeof(char), temp_avg.length(), power_stats);
+        std::string power_temp_avg   = std::to_string(power_avg/1000);
+        std::string power_temp_peak  = std::to_string(power_peak/1000);
+        std::string clock_temp_avg   = std::to_string(clock_avg);
+        std::string clock_temp_peak  = std::to_string(clock_peak);
+        
+        //POWER
+        fwrite(power_temp_avg.c_str(), sizeof(char), power_temp_avg.length(), power_stats);
         fwrite(",", sizeof(char), 1, power_stats);
-        fwrite(temp_peak.c_str(), sizeof(char), temp_peak.length(), power_stats);
+        fwrite(power_temp_peak.c_str(), sizeof(char), power_temp_peak.length(), power_stats);
+        //SM FREQUENCY
+        fwrite(clock_temp_avg.c_str(), sizeof(char), clock_temp_avg.length(), power_stats);
+        fwrite(",", sizeof(char), 1, power_stats);
+        fwrite(clock_temp_peak.c_str(), sizeof(char), clock_temp_peak.length(), power_stats);
+
         fwrite("\n", sizeof(char), 1, power_stats);
         fflush(power_stats);
-        reset_power_stats = true;
+        fclose(power_stats);
+        reset_stats = true;
   }
   map<string, Net<float>*>::iterator it = nets.find(req_name);
   if (it == nets.end()) {
