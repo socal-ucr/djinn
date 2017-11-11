@@ -76,7 +76,6 @@ void classname<Dtype>::funcname##_##gpu(const vector<Blob<Dtype>*>& top, \
 #define CUDA_POST_KERNEL_CHECK CUDA_CHECK(cudaPeekAtLastError())
 
 namespace caffe {
-
 // CUDA: library error reporting.
 const char* cublasGetErrorString(cublasStatus_t error);
 const char* curandGetErrorString(curandStatus_t error);
@@ -90,9 +89,11 @@ const char* curandGetErrorString(curandStatus_t error);
     const int CAFFE_CUDA_NUM_THREADS = 512;
 #endif
 
+//unsigned int THREAD_BLOCK_MODIFIER = 1;
+
 // CUDA: number of blocks for threads.
 inline int CAFFE_GET_BLOCKS(const int N) {
-  return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
+  return ((N/1) + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
 }
 
 }  // namespace caffe

@@ -4,6 +4,7 @@
 *.ko
 *.obj
 *.elf
+.tags
 
 # Libraries
 *.lib
@@ -47,3 +48,6 @@ tonic-suite/img/flandmark*
 *.txt
 stats-util/
 nvprof-*
+
+tonic-suite/img/flandmark.zip
+tonic-suite/img/flandmark-master/*

@@ -33,14 +33,23 @@
 #include "thread.h"
 #include "tonic.h"
 
+#define NUM_F_STATES 19
+#define NUM_RPS 11
+
 using namespace std;
 namespace po = boost::program_options;
 
 map<string, Net<float>*> nets;
 int avg=0, peak=0, minimum=INT_MAX;
 bool reset_power_stats = false;
+int TBReductionFactor;
 bool debug;
 bool gpu;
+unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
+unsigned int RPS [NUM_RPS]= {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024};
+unsigned int rps_index = 0;
+FILE * pFile;
+pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
 
 void  INThandler(int sig)
@@ -95,10 +104,20 @@ void *record_power(void* args)
     int n=1;
     nvmlDeviceGetPowerUsage(*device, &power);
     avg = (int)power;
-	while(1)
+   // caffe::THREAD_BLOCK_MODIFIER = 1;
+    while(1)
     {
         if(reset_power_stats)
         {
+            pthread_rwlock_wrlock(&output_rwlock);
+            fclose (pFile);
+            rps_index++;
+            if(rps_index >= NUM_RPS)
+                raise(2);
+            std::string outfileName;
+            outfileName = std::to_string(RPS[rps_index]) + ".out";
+            pFile = fopen(outfileName.c_str(),"w");
+            pthread_rwlock_unlock(&output_rwlock);
             avg=power;
             n=1;
             peak=0;
@@ -115,9 +134,6 @@ void *record_power(void* args)
 }
 
 
-FILE * pFile;
-pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
-
 po::variables_map parse_opts(int ac, char** av) {
   // Declare the supported options.
   po::options_description desc("Allowed options");
@@ -125,8 +141,9 @@ po::variables_map parse_opts(int ac, char** av) {
       "common,c", po::value<string>()->default_value("../common/"),
       "Directory with configs and weights")(
       "portno,p", po::value<int>()->default_value(8080),
-      "Port to open DjiNN on")
-
+      "Port to open DjiNN on")(
+      "TBReductionFactor,t", po::value<int>()->default_value(1),
+      "Reduce the # of TB by factor of value")
       ("nets,n", po::value<string>()->default_value("nets.txt"),
        "File with list of network configs (.prototxt/line)")(
           "weights,w", po::value<string>()->default_value("weights/"),
@@ -172,13 +189,14 @@ signal(SIGINT, INThandler);
     unsigned int memClockCount = 4;
     nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
 
-    for(int i = 0; i < memClockCount; i++)
+    for(int i = 0; i < 1; i++)
     {
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
-
     }
 
-   nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][0]),"SetClocks");
+  nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[1]]),"SetClocks");
+
+
   pthread_t t_rp;
   pthread_create(&t_rp, NULL, record_power, &device);
 
@@ -193,7 +211,8 @@ signal(SIGINT, INThandler);
     Caffe::set_mode(Caffe::GPU);
   else
     Caffe::set_mode(Caffe::CPU);
-
+   
+  TBReductionFactor = vm["TBReductionFactor"].as<int>();
   // load all models at init
   ifstream file(vm["nets"].as<string>().c_str());
   string net_name;
@@ -216,9 +235,10 @@ signal(SIGINT, INThandler);
   listen(socketfd, 1000);
   LOG(INFO) << "Server is listening for requests on " << vm["portno"].as<int>();
 
-
   //Create log file
-  pFile = fopen("out.txt","w");
+  std::string outfileName;
+  outfileName = std::to_string(RPS[rps_index]) + ".out";
+  pFile = fopen(outfileName.c_str(),"w");
   if(pFile == NULL){
 	LOG(INFO) << "Could not create out file";
 	return 0;
