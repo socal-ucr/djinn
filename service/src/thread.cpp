@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <boost/chrono/thread_clock.hpp>
 #include <string>
+#include  <signal.h>
 
 #include "timer.h"
 #include "thread.h"
@@ -34,6 +35,8 @@ extern bool gpu;
 extern FILE * pFile;
 extern pthread_rwlock_t output_rwlock;
 
+extern int avg, peak;
+extern bool reset_power_stats;
 
 
 void SERVICE_fwd(float* in, int in_size, float* out, int out_size,
@@ -75,7 +78,6 @@ struct timeval t1, t2;
   std::string temp = std::to_string(elapsedTime);
 
   //write to outputfile
-  printf("WRITE\n");
   pthread_rwlock_wrlock(&output_rwlock);
   fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
   fwrite("\n", sizeof(char), 1, pFile);
@@ -111,7 +113,31 @@ void* request_handler(void* sock) {
   // 3. Client sends data
 
   char req_name[MAX_REQ_SIZE];
+  char *ok;
+  ok= (char*)"OK";
   SOCKET_receive(socknum, (char*)&req_name, MAX_REQ_SIZE, debug);
+  printf("Checking if djinn has to be reset \n");
+  //LOG(ERROR) << "Checking if Djinn has to be reset " << req_name << " " << (char*)req_name << endl;
+  if (strcmp(req_name, "DONE") == 0)
+  {
+        printf("Done signal received\n");
+        SOCKET_send(socknum, ok, MAX_REQ_SIZE, 0);
+        LOG(ERROR) << "Reset flag received. Time to reset djinn!!" << endl;
+        FILE *power_stats = fopen("power_stats.out", "a");
+        if (power_stats == NULL)
+        {
+            LOG(INFO) << "Cannot create stats file" << endl;
+            raise(2);
+        }
+        std::string temp_avg  = std::to_string(avg/1000);
+        std::string temp_peak  = std::to_string(peak/1000);
+        fwrite(temp_avg.c_str(), sizeof(char), temp_avg.length(), power_stats);
+        fwrite(",", sizeof(char), 1, power_stats);
+        fwrite(temp_peak.c_str(), sizeof(char), temp_peak.length(), power_stats);
+        fwrite("\n", sizeof(char), 1, power_stats);
+        fflush(power_stats);
+        reset_power_stats = true;
+  }
   map<string, Net<float>*>::iterator it = nets.find(req_name);
   if (it == nets.end()) {
     LOG(ERROR) << "Task " << req_name << " not found.";
@@ -156,10 +182,14 @@ void* request_handler(void* sock) {
 
     if (warmup && gpu) {
       float loss;
+        printf("INPUT_BLOBS\n");
       vector<Blob<float>*> in_blobs = nets[req_name]->input_blobs();
+        printf("SET_CPU_DATA\n");
       in_blobs[0]->set_cpu_data(in);
+        printf("ForwardPrefilled\n");
       vector<Blob<float>*> out_blobs;
       out_blobs = nets[req_name]->ForwardPrefilled(&loss);
+        printf("END\n");
       warmup = false;
     }
 

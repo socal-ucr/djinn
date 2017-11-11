@@ -25,9 +25,8 @@
 #include <glog/logging.h>
 #include <errno.h>
 #include <nvml.h>
-#include  <signal.h>
 #include <limits.h>
-
+#include <signal.h>
 
 #include "boost/program_options.hpp"
 #include "socket.h"
@@ -39,6 +38,7 @@ namespace po = boost::program_options;
 
 map<string, Net<float>*> nets;
 int avg=0, peak=0, minimum=INT_MAX;
+bool reset_power_stats = false;
 bool debug;
 bool gpu;
 
@@ -97,11 +97,19 @@ void *record_power(void* args)
     avg = (int)power;
 	while(1)
     {
+        if(reset_power_stats)
+        {
+            avg=power;
+            n=1;
+            peak=0;
+            minimum=INT_MAX;
+            reset_power_stats = false;
+        }
         nvmlDeviceGetPowerUsage(*device, &power);
         avg = avg+(((int)power-avg)/++n);
         if (peak<(int)power) peak=(int)power;
         if (minimum>(int)power) minimum=(int)power;
-        usleep(10);
+        usleep(1000);
     }
 	return 0;
 }
