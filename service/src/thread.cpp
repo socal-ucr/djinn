@@ -56,15 +56,12 @@ struct timeval t1, t2;
   float loss;
   vector<Blob<float>*> in_blobs = net->input_blobs();
 
-  //tic();
 
-    gettimeofday(&t1, NULL);
+  gettimeofday(&t1, NULL);
   in_blobs[0]->set_cpu_data(in);
   vector<Blob<float>*> out_blobs = net->ForwardPrefilled(&loss);
   memcpy(out, out_blobs[0]->cpu_data(), sizeof(float));
 	
-  //double time = toc();
-
    gettimeofday(&t2, NULL);
     double elapsedTime;
     elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
@@ -139,6 +136,7 @@ void* request_handler(void* sock) {
         fwrite(power_temp_avg.c_str(), sizeof(char), power_temp_avg.length(), power_stats);
         fwrite(",", sizeof(char), 1, power_stats);
         fwrite(power_temp_peak.c_str(), sizeof(char), power_temp_peak.length(), power_stats);
+        fwrite(",", sizeof(char), 1, power_stats);
         //SM FREQUENCY
         fwrite(clock_temp_avg.c_str(), sizeof(char), clock_temp_avg.length(), power_stats);
         fwrite(",", sizeof(char), 1, power_stats);

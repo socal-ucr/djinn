@@ -238,7 +238,6 @@ signal(SIGINT, INThandler);
   int fState = vm["clock"].as<int>();
   if (fState != -1)
      nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
-
   // load all models at init
   ifstream file(vm["nets"].as<string>().c_str());
   string net_name;
@@ -270,7 +269,7 @@ signal(SIGINT, INThandler);
 	return 0;
 	}
     FILE *power_stats = fopen("power_stats.out", "w");
-    std::string stats = "power_avg,power_peak,clock_avg,clock_peak";
+    std::string stats = "power_avg,power_peak,clock_avg,clock_peak\n";
     fwrite(stats.c_str(), sizeof(char), stats.length(), power_stats);
     fflush(power_stats);
     fclose(power_stats);
