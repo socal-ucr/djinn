@@ -30,7 +30,7 @@
 #include "socket.h"
 #include "tonic.h"
 #include <pthread.h>
-
+#include <vector>
 
 using namespace std;
 using namespace cv;
@@ -185,6 +185,22 @@ po::variables_map parse_opts(int ac, char** av) {
 int main(int argc, char** argv)
 {
 
+    ifstream inFile;
+    inFile.open("distribution.txt");
+
+    if(!inFile)
+    {
+        printf("No distribution file\n");
+        exit(1);
+    }
+   
+
+    float x;
+    std::vector<unsigned int> distribution;
+    int i = 0;
+    while(inFile >> x)
+        distribution.push_back((unsigned int)(x*1000000.0f));
+    total_requests = distribution.size();
     po::variables_map vm = parse_opts(argc, argv);
 
     bool debug = vm["debug"].as<bool>();
@@ -196,11 +212,10 @@ int main(int argc, char** argv)
 
     RPS = vm["rps"].as<int>();
     seconds = vm["seconds"].as<int>();
-    total_requests = RPS * seconds;
     sleep_time = (1000000.0f / double(RPS));
 
   
-    threads = (pthread_t*)malloc(sizeof(pthread_t)*RPS*seconds);
+    threads = (pthread_t*)malloc(sizeof(pthread_t)*total_requests);
     // DjiNN service or local?
     app.djinn = vm["djinn"].as<bool>();
     app.gpu = vm["gpu"].as<bool>();
@@ -309,24 +324,23 @@ int main(int argc, char** argv)
 
     //Create log file
     std::string outfileName;
-    outfileName = std::to_string(RPS) + ".out";
+    outfileName = std::to_string(vm["rps"].as<int>()) + ".out";
     pFile = fopen(outfileName.c_str(),"w");
     if(pFile == NULL){
 	    LOG(INFO) << "Could not create out file";
 	    return 0;
 	}
-    unsigned int sleep_time = 1000000 / RPS;
     if (app.djinn)
     {
         if (seconds > 1)
         {
-            for(int i = 0; i < seconds*RPS; i++)
+            for(int i = 0; i < total_requests; i++)
             {
                 pthread_create(threads+i,NULL,create_thread_socket_v1,NULL);
-                usleep(sleep_time);
+                usleep(distribution[i]);
             }
 
-            for (int i=0; i < seconds*RPS; i++)
+            for (int i=0; i < total_requests; i++)
                 pthread_join(threads[i], NULL);
         }
 
@@ -388,7 +402,7 @@ int main(int argc, char** argv)
 
         }
 
-        reset_djinn();
+        //reset_djinn();
     }
 
     else
