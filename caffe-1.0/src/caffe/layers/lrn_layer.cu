@@ -18,8 +18,8 @@ __global__ void LRNFillScale(const int nthreads, const Dtype* in,
     int n = index / width / height;
     int offset = (n * channels * height + h) * width + w;
     int step = height * width;
-    in += offset;
-    scale += offset;
+    const Dtype* in_t = in + offset;
+    Dtype* scale_t = scale + offset;
     int head = 0;
     int pre_pad = (size - 1) / 2;
     int post_pad = size - pre_pad - 1;
@@ -27,26 +27,26 @@ __global__ void LRNFillScale(const int nthreads, const Dtype* in,
     // fill the scale at [n, :, h, w]
     // accumulate values
     while (head < post_pad) {
-      accum_scale += in[head * step] * in[head * step];
+      accum_scale += in_t[head * step] * in_t[head * step];
       ++head;
     }
     // until we reach size, nothing needs to be subtracted
     while (head < size) {
-      accum_scale += in[head * step] * in[head * step];
-      scale[(head - post_pad) * step] = 1. + accum_scale * alpha_over_size;
+      accum_scale += in_t[head * step] * in_t[head * step];
+      scale_t[(head - post_pad) * step] = 1. + accum_scale * alpha_over_size;
       ++head;
     }
     // both add and subtract
     while (head < channels) {
-      accum_scale += in[head * step] * in[head * step];
-      accum_scale -= in[(head - size) * step] * in[(head - size) * step];
-      scale[(head - post_pad) * step] = 1. + accum_scale * alpha_over_size;
+      accum_scale += in_t[head * step] * in_t[head * step];
+      accum_scale -= in_t[(head - size) * step] * in_t[(head - size) * step];
+      scale_t[(head - post_pad) * step] = 1. + accum_scale * alpha_over_size;
       ++head;
     }
     // subtract only
     while (head < channels + post_pad) {
-      accum_scale -= in[(head - size) * step] * in[(head - size) * step];
-      scale[(head - post_pad) * step] = 1. + accum_scale * alpha_over_size;
+      accum_scale -= in_t[(head - size) * step] * in_t[(head - size) * step];
+      scale_t[(head - post_pad) * step] = 1. + accum_scale * alpha_over_size;
       ++head;
     }
   }

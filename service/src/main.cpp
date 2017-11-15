@@ -161,7 +161,7 @@ po::variables_map parse_opts(int ac, char** av) {
       "Directory with configs and weights")(
       "portno,p", po::value<int>()->default_value(8080),
       "Port to open DjiNN on")(
-      "TBReductionFactor,t", po::value<int>()->default_value(1),
+      "tbrf,T", po::value<float>()->default_value(1.0f),
       "Reduce the # of TB by factor of value")(
       "clock,cl", po::value<int>()->default_value(-1),
       "Set Clock state 0-18,-1 for default")
@@ -233,7 +233,7 @@ signal(SIGINT, INThandler);
   else
     Caffe::set_mode(Caffe::CPU);
    
-  TBReductionFactor = vm["TBReductionFactor"].as<int>();
+  caffe::THREAD_BLOCK_REDUCTION_FACTOR = vm["tbrf"].as<float>();
 
   int fState = vm["clock"].as<int>();
   if (fState != -1)

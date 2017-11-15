@@ -10,3 +10,6 @@ make clean && make
 echo "MAKE SERVICE"
 cd ../service
 make clean && make
+echo "MAKE TONIC CLIENT"
+cd ../tonic-suite/img
+make clean && make

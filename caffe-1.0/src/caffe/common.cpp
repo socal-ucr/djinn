@@ -8,6 +8,8 @@
 namespace caffe {
 
 shared_ptr<Caffe> Caffe::singleton_;
+float THREAD_BLOCK_REDUCTION_FACTOR = 1.0f;
+
 
 // random seeding
 int64_t cluster_seedgen(void) {

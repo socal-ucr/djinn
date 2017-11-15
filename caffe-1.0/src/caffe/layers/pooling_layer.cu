@@ -28,13 +28,13 @@ __global__ void MaxPoolForward(const int nthreads, const Dtype* bottom_data,
     wstart = max(wstart, 0);
     Dtype maxval = -FLT_MAX;
     int maxidx = -1;
-    bottom_data += (n * channels + c) * height * width;
+    const Dtype* const bottom = bottom_data + ((n * channels + c) * height * width);
     for (int h = hstart; h < hend; ++h) {
       for (int w = wstart; w < wend; ++w) {
-        if (bottom_data[h * width + w] > maxval) {
-          maxidx = h * width + w;
-          maxval = bottom_data[maxidx];
-        }
+            if ((float)(bottom[h * width + w]) > maxval) {
+                maxidx = h * width + w;
+                maxval = (float)(bottom[maxidx]);
+            }
       }
     }
     top_data[index] = maxval;
@@ -168,7 +168,6 @@ void PoolingLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
       mask = max_idx_.mutable_gpu_data();
     }
     // NOLINT_NEXT_LINE(whitespace/operators)
-    //printf("\t\tTB:%d NUM:%d\n",CAFFE_GET_BLOCKS(count), bottom[0]->num());
     MaxPoolForward<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
         count, bottom_data, bottom[0]->num(), channels_,
         height_, width_, pooled_height_, pooled_width_, kernel_h_,

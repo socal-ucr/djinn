@@ -258,7 +258,7 @@ endif
 # Debugging
 ifeq ($(DEBUG), 1)
 	COMMON_FLAGS += -DDEBUG -g -O0
-	NVCCFLAGS += -G
+	NVCCFLAGS += -G -lineinfo
 else
 	COMMON_FLAGS += -DNDEBUG -O2
 endif

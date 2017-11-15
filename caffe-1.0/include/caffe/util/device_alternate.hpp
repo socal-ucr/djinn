@@ -4,6 +4,7 @@
 #ifdef CPU_ONLY  // CPU-only Caffe.
 
 #include <vector>
+#include <math.h>
 
 // Stub out GPU calls as unavailable.
 
@@ -89,11 +90,12 @@ const char* curandGetErrorString(curandStatus_t error);
     const int CAFFE_CUDA_NUM_THREADS = 512;
 #endif
 
-//unsigned int THREAD_BLOCK_MODIFIER = 1;
+extern float THREAD_BLOCK_REDUCTION_FACTOR;
 
 // CUDA: number of blocks for threads.
 inline int CAFFE_GET_BLOCKS(const int N) {
-  return ((N/1) + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
+  
+  return int(floor((ceil(float(N)*THREAD_BLOCK_REDUCTION_FACTOR) + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS));
 }
 
 }  // namespace caffe
