@@ -34,7 +34,7 @@
 #include "tonic.h"
 
 #define NUM_F_STATES 19
-#define NUM_RPS 11
+#define NUM_RPS 55
 
 using namespace std;
 namespace po = boost::program_options;
@@ -47,11 +47,27 @@ int TBReductionFactor;
 bool debug;
 bool gpu;
 unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
-unsigned int RPS [NUM_RPS]= {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024};
+unsigned int RPS[NUM_RPS]=
+//{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 
+{ 10,
+ 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+ 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+ 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+ 41, 42, 43, 44, 45, 46, 
+ 47, 48, 49, 50,
+ 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
+ 61, 62, 63, 64};
 unsigned int rps_index = 0;
+unsigned int fs_index = 0;
 FILE * pFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
+   
+unsigned int memClocksMHz[4];
+unsigned int graphicClocksMHz[4][150];
+unsigned int graphicClockCount[4] = {150, 150, 150, 150};
+unsigned int memClockCount = 4;
+    
 
 void  INThandler(int sig)
 {
@@ -117,6 +133,8 @@ void *record_power(void* args)
     {
         if(reset_stats)
         {
+            /*
+            //RPS
             pthread_rwlock_wrlock(&output_rwlock);
             fclose (pFile);
             rps_index++;
@@ -126,14 +144,30 @@ void *record_power(void* args)
             outfileName = std::to_string(RPS[rps_index]) + ".out";
             pFile = fopen(outfileName.c_str(),"w");
             pthread_rwlock_unlock(&output_rwlock);
+            */
+            
+            //Frequency
+            pthread_rwlock_wrlock(&output_rwlock);
+            fclose (pFile);
+            fs_index++;
+            if(fs_index >= NUM_F_STATES)
+                raise(2);
+            std::string outfileName;
+            outfileName = std::to_string(fs_index) + ".out";
+            pFile = fopen(outfileName.c_str(),"w");
+            pthread_rwlock_unlock(&output_rwlock);
 
+
+            //nvmlChkError(nvmlDeviceSetApplicationsClocks(*device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fs_index]]),"SetClocks");
             //POWER
+            nvmlDeviceGetPowerUsage(*device, &power);
             power_avg=power;
-            power_peak=0;
+            power_peak=power_avg;
 
             //SM FREQUENCY
+            nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
             clock_avg=clock;
-            clock_peak=0;
+            clock_peak=clock_avg;
 
             n=1;
             reset_stats = false;
@@ -164,7 +198,9 @@ po::variables_map parse_opts(int ac, char** av) {
       "tbrf,T", po::value<float>()->default_value(1.0f),
       "Reduce the # of TB by factor of value")(
       "clock,cl", po::value<int>()->default_value(-1),
-      "Set Clock state 0-18,-1 for default")
+      "Set Clock state 0-18,-1 for default")(
+      "outfile,o", po::value<int>()->default_value(1),
+      "Set outfile name *.out")
       ("nets,n", po::value<string>()->default_value("nets.txt"),
        "File with list of network configs (.prototxt/line)")(
           "weights,w", po::value<string>()->default_value("weights/"),
@@ -190,37 +226,27 @@ po::variables_map parse_opts(int ac, char** av) {
 
 int main(int argc, char* argv[]) {
 
-signal(SIGINT, INThandler);
-//initialize nvml
+    signal(SIGINT, INThandler);
     nvmlReturn_t result;
     unsigned int device_count;
     nvmlDevice_t device;
-    nvmlChkError(nvmlInit(), "nvmlInit");
+ 
+    //initialize nvml
+   nvmlChkError(nvmlInit(), "nvmlInit");
 
     nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
 
     nvmlChkError(nvmlDeviceGetHandleByIndex(device_count-1, &device), "GetHandle");
     
-    nvmlChkError(nvmlDeviceSetPersistenceMode(device,NVML_FEATURE_ENABLED),"EnablePersistence");
+   // nvmlChkError(nvmlDeviceSetPersistenceMode(device,NVML_FEATURE_ENABLED),"EnablePersistence");
 //    nvmlChkError(nvmlDeviceSetAutoBoostedClocksEnabled(device,NVML_FEATURE_ENABLED),"DisableAutoBoost");
     //get graphics clock info
-    unsigned int memClocksMHz[4];
-    unsigned int graphicClocksMHz[4][150];
-    unsigned int graphicClockCount[4] = {150, 150, 150, 150};
-    unsigned int memClockCount = 4;
-    nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
+   nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
 
     for(int i = 0; i < 1; i++)
     {
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
     }
-
-    
-
-
-  pthread_t t_rp;
-  pthread_create(&t_rp, NULL, record_power, &device);
-
 
   // Main thread for the server
   // Spawn a new thread for each request
@@ -232,9 +258,13 @@ signal(SIGINT, INThandler);
     Caffe::set_mode(Caffe::GPU);
   else
     Caffe::set_mode(Caffe::CPU);
-   
   caffe::THREAD_BLOCK_REDUCTION_FACTOR = vm["tbrf"].as<float>();
 
+  if(caffe::THREAD_BLOCK_REDUCTION_FACTOR > 1 || caffe::THREAD_BLOCK_REDUCTION_FACTOR < 0)
+  {
+    printf("TBRF must be between 0 and 1\n");
+    exit(1);
+  }
   int fState = vm["clock"].as<int>();
   if (fState != -1)
      nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
@@ -262,17 +292,20 @@ signal(SIGINT, INThandler);
 
   //Create log file
   std::string outfileName;
-  outfileName = std::to_string(RPS[rps_index]) + ".out";
+ outfileName = std::to_string(vm["outfile"].as<int>()) + ".out";
   pFile = fopen(outfileName.c_str(),"w");
   if(pFile == NULL){
 	LOG(INFO) << "Could not create out file";
 	return 0;
 	}
-    FILE *power_stats = fopen("power_stats.out", "w");
+  /*
+    FILE *power_stats = fopen("power_stats.out", "a");
     std::string stats = "power_avg,power_peak,clock_avg,clock_peak\n";
-    fwrite(stats.c_str(), sizeof(char), stats.length(), power_stats);
     fflush(power_stats);
     fclose(power_stats);
+*/
+    
+  pthread_t t_rp;
   // Main Loop
   int thread_cnt = 0;
   while (1) {
@@ -286,16 +319,47 @@ signal(SIGINT, INThandler);
       LOG(ERROR) << errsv;
       LOG(ERROR) << thread_cnt;
       break;
-    } else
-      new_thread_id = request_thread_init(client_sock);
+    }
+    else
+    {
+      if(thread_cnt == 0)
+            pthread_create(&t_rp, NULL, record_power, &device);
 
+      new_thread_id = request_thread_init(client_sock);
+    }   
     ++thread_cnt;
     if (thread_cnt == total_thread_cnt) {
+        printf("JOINING\n");
       if (pthread_join(new_thread_id, NULL) != 0) {
         LOG(FATAL) << "Failed to join.\n";
       }
       break;
     }
   }
+        FILE *power_stats = fopen("power_stats.out", "a");
+        if (power_stats == NULL)
+        {
+            LOG(INFO) << "Cannot create stats file" << endl;
+            raise(2);
+        }
+        std::string power_temp_avg   = std::to_string(power_avg/1000);
+        std::string power_temp_peak  = std::to_string(power_peak/1000);
+        std::string clock_temp_avg   = std::to_string(clock_avg);
+        std::string clock_temp_peak  = std::to_string(clock_peak);
+        
+        //POWER
+        fwrite(power_temp_avg.c_str(), sizeof(char), power_temp_avg.length(), power_stats);
+        fwrite(",", sizeof(char), 1, power_stats);
+        fwrite(power_temp_peak.c_str(), sizeof(char), power_temp_peak.length(), power_stats);
+        fwrite(",", sizeof(char), 1, power_stats);
+        //SM FREQUENCY
+        fwrite(clock_temp_avg.c_str(), sizeof(char), clock_temp_avg.length(), power_stats);
+        fwrite(",", sizeof(char), 1, power_stats);
+        fwrite(clock_temp_peak.c_str(), sizeof(char), clock_temp_peak.length(), power_stats);
+
+        fwrite("\n", sizeof(char), 1, power_stats);
+        fflush(power_stats);
+        fclose(power_stats);
+
   return 0;
 }

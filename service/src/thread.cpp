@@ -96,8 +96,10 @@ pthread_t request_thread_init(int sock) {
 
   // Create a new thread starting with the function request_handler
   pthread_t tid;
-  if (pthread_create(&tid, &attr, request_handler, (void*)(intptr_t)sock) != 0)
-    LOG(ERROR) << "Failed to create a request handler thread.\n";
+
+    int error = pthread_create(&tid, &attr, request_handler, (void*)(intptr_t)sock);
+    if(error != 0)
+        LOG(ERROR) << "Failed to create a request handler thread.\nERROR:" << error << "\n";
 
   return tid;
 }
