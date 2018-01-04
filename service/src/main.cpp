@@ -20,13 +20,13 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <errno.h>
 #include <map>
 #include <glog/logging.h>
 #include <errno.h>
 #include <nvml.h>
 #include <limits.h>
 #include <signal.h>
+#include <semaphore.h>
 
 #include "boost/program_options.hpp"
 #include "socket.h"
@@ -43,7 +43,6 @@ map<string, Net<float>*> nets;
 int power_avg=0, power_peak=0;
 int clock_avg=0, clock_peak=0;
 bool reset_stats = false;
-int TBReductionFactor;
 bool debug;
 bool gpu;
 unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
@@ -61,13 +60,14 @@ unsigned int rps_index = 0;
 unsigned int fs_index = 0;
 FILE * pFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
-
+sem_t CUDA_sem;
+pthread_mutex_t CUDA_mutex= PTHREAD_MUTEX_INITIALIZER;
    
 unsigned int memClocksMHz[4];
 unsigned int graphicClocksMHz[4][150];
 unsigned int graphicClockCount[4] = {150, 150, 150, 150};
 unsigned int memClockCount = 4;
-    
+unsigned int active_threads = 0; 
 
 void  INThandler(int sig)
 {
@@ -113,7 +113,7 @@ void nvmlChkError(nvmlReturn_t result, const char * error)
     } 
 }
 
-
+bool kill_power_t = false;
 void *record_power(void* args)
 {
     nvmlDevice_t* device = (nvmlDevice_t*)args;
@@ -131,6 +131,8 @@ void *record_power(void* args)
     int n=1;
     while(1)
     {
+        if(kill_power_t)
+            break;
         if(reset_stats)
         {
             /*
@@ -195,12 +197,14 @@ po::variables_map parse_opts(int ac, char** av) {
       "Directory with configs and weights")(
       "portno,p", po::value<int>()->default_value(8080),
       "Port to open DjiNN on")(
-      "tbrf,T", po::value<float>()->default_value(1.0f),
+      "tbrf,T", po::value<int>()->default_value(100),
       "Reduce the # of TB by factor of value")(
       "clock,cl", po::value<int>()->default_value(-1),
       "Set Clock state 0-18,-1 for default")(
-      "outfile,o", po::value<int>()->default_value(1),
-      "Set outfile name *.out")
+      "outfile,o", po::value<string>()->default_value("outfile"),
+      "Set outfile name *.out")(
+      "power,po", po::value<bool>()->default_value(false),
+      "Collect Power stats")
       ("nets,n", po::value<string>()->default_value("nets.txt"),
        "File with list of network configs (.prototxt/line)")(
           "weights,w", po::value<string>()->default_value("weights/"),
@@ -258,7 +262,7 @@ int main(int argc, char* argv[]) {
     Caffe::set_mode(Caffe::GPU);
   else
     Caffe::set_mode(Caffe::CPU);
-  caffe::THREAD_BLOCK_REDUCTION_FACTOR = vm["tbrf"].as<float>();
+  caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>()) / 100.0f;
 
   if(caffe::THREAD_BLOCK_REDUCTION_FACTOR > 1 || caffe::THREAD_BLOCK_REDUCTION_FACTOR < 0)
   {
@@ -285,14 +289,14 @@ int main(int argc, char* argv[]) {
   // -1 to stay indefinitely open
   int total_thread_cnt = vm["threadcnt"].as<int>();
   int socketfd = SERVER_init(vm["portno"].as<int>());
-
+  bool POWER = vm["power"].as<bool>();
   // Listen on socket
   listen(socketfd, 1000);
   LOG(INFO) << "Server is listening for requests on " << vm["portno"].as<int>();
 
   //Create log file
   std::string outfileName;
- outfileName = std::to_string(vm["outfile"].as<int>()) + ".out";
+ outfileName = vm["outfile"].as<string>() + ".out";
   pFile = fopen(outfileName.c_str(),"w");
   if(pFile == NULL){
 	LOG(INFO) << "Could not create out file";
@@ -308,6 +312,12 @@ int main(int argc, char* argv[]) {
   pthread_t t_rp;
   // Main Loop
   int thread_cnt = 0;
+  if(sem_init(&CUDA_sem, 0, 1)==-1)
+  {
+      LOG(ERROR) << "Failed to INIT SEMAPHORE.\n";
+      LOG(ERROR) << errno;
+      return(1);
+  }
   while (1) {
     pthread_t new_thread_id;
     int client_sock = accept(socketfd, (sockaddr*)0, (unsigned int*)0);
@@ -322,44 +332,49 @@ int main(int argc, char* argv[]) {
     }
     else
     {
-      if(thread_cnt == 0)
+      if(thread_cnt == 0 && POWER)
             pthread_create(&t_rp, NULL, record_power, &device);
 
       new_thread_id = request_thread_init(client_sock);
     }   
     ++thread_cnt;
     if (thread_cnt == total_thread_cnt) {
-        printf("JOINING\n");
-      if (pthread_join(new_thread_id, NULL) != 0) {
-        LOG(FATAL) << "Failed to join.\n";
-      }
-      break;
+        //if (pthread_join(new_thread_id, NULL) != 0) {
+        //    LOG(FATAL) << "Failed to join.\n";
+       // }
+       while(active_threads != 0){usleep(10);}
+
+       if(POWER)
+       {
+            FILE *power_stats = fopen("power_stats.out", "a");
+            if (power_stats == NULL)
+            {
+                LOG(INFO) << "Cannot create stats file" << endl;
+                raise(2);
+            }
+            std::string power_temp_avg   = std::to_string(power_avg/1000);
+            std::string power_temp_peak  = std::to_string(power_peak/1000);
+            std::string clock_temp_avg   = std::to_string(clock_avg);
+            std::string clock_temp_peak  = std::to_string(clock_peak);
+        
+            //POWER
+            fwrite(power_temp_avg.c_str(), sizeof(char), power_temp_avg.length(), power_stats);
+            fwrite(",", sizeof(char), 1, power_stats);
+            fwrite(power_temp_peak.c_str(), sizeof(char), power_temp_peak.length(), power_stats);
+            fwrite(",", sizeof(char), 1, power_stats);
+            //SM FREQUENCY
+            fwrite(clock_temp_avg.c_str(), sizeof(char), clock_temp_avg.length(), power_stats);
+            fwrite(",", sizeof(char), 1, power_stats);
+            fwrite(clock_temp_peak.c_str(), sizeof(char), clock_temp_peak.length(), power_stats);
+
+            fwrite("\n", sizeof(char), 1, power_stats);
+            fflush(power_stats);
+            fclose(power_stats);
+            kill_power_t = true;
+            pthread_join(t_rp,NULL);
+       }
+        break;
     }
   }
-        FILE *power_stats = fopen("power_stats.out", "a");
-        if (power_stats == NULL)
-        {
-            LOG(INFO) << "Cannot create stats file" << endl;
-            raise(2);
-        }
-        std::string power_temp_avg   = std::to_string(power_avg/1000);
-        std::string power_temp_peak  = std::to_string(power_peak/1000);
-        std::string clock_temp_avg   = std::to_string(clock_avg);
-        std::string clock_temp_peak  = std::to_string(clock_peak);
-        
-        //POWER
-        fwrite(power_temp_avg.c_str(), sizeof(char), power_temp_avg.length(), power_stats);
-        fwrite(",", sizeof(char), 1, power_stats);
-        fwrite(power_temp_peak.c_str(), sizeof(char), power_temp_peak.length(), power_stats);
-        fwrite(",", sizeof(char), 1, power_stats);
-        //SM FREQUENCY
-        fwrite(clock_temp_avg.c_str(), sizeof(char), clock_temp_avg.length(), power_stats);
-        fwrite(",", sizeof(char), 1, power_stats);
-        fwrite(clock_temp_peak.c_str(), sizeof(char), clock_temp_peak.length(), power_stats);
-
-        fwrite("\n", sizeof(char), 1, power_stats);
-        fflush(power_stats);
-        fclose(power_stats);
-
-  return 0;
+         return 0;
 }

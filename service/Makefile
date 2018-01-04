@@ -15,6 +15,7 @@ endif
 
 LINK_FLAGS = $(LIBRARY_DIRS) \
 			 			 -lnvidia-ml \
+						 -lcudart \
 						 -lpthread \
 						 -ldl \
 						 -lrt \

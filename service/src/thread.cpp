@@ -24,7 +24,9 @@
 #include <boost/chrono/thread_clock.hpp>
 #include <string>
 #include  <signal.h>
-
+#include <cuda.h>
+#include <semaphore.h>
+#include <errno.h>
 #include "timer.h"
 #include "thread.h"
 
@@ -34,58 +36,67 @@ extern bool debug;
 extern bool gpu;
 extern FILE * pFile;
 extern pthread_rwlock_t output_rwlock;
+extern sem_t CUDA_sem;
+extern pthread_mutex_t CUDA_mutex;
 
 extern int power_avg, power_peak;
 extern int clock_avg, clock_peak;
 extern bool reset_stats;
+extern int active_threads;
 
-
-void SERVICE_fwd(float* in, int in_size, float* out, int out_size,
+double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
                  Net<float>* net) {
 
 struct timeval t1, t2;
   string net_name = net->name();
-  STATS_INIT("service", "DjiNN service inference");
-  PRINT_STAT_STRING("network", net_name.c_str());
+  //STATS_INIT("service", "DjiNN service inference");
+//  PRINT_STAT_STRING("network", net_name.c_str());
 
-  if (Caffe::mode() == Caffe::CPU)
-    PRINT_STAT_STRING("platform", "cpu");
-  else
-    PRINT_STAT_STRING("platform", "gpu");
+//  if (Caffe::mode() == Caffe::CPU)
+//    PRINT_STAT_STRING("platform", "cpu");
+//  else
+//    PRINT_STAT_STRING("platform", "gpu");
 
   float loss;
+
+ if(sem_wait(&CUDA_sem) == -1)
+ {
+    LOG(ERROR) << "ERROR AT SEM_WAIT\n";
+    LOG(ERROR) << errno;
+
+ }
   vector<Blob<float>*> in_blobs = net->input_blobs();
-
-
   gettimeofday(&t1, NULL);
   in_blobs[0]->set_cpu_data(in);
   vector<Blob<float>*> out_blobs = net->ForwardPrefilled(&loss);
   memcpy(out, out_blobs[0]->cpu_data(), sizeof(float));
-	
    gettimeofday(&t2, NULL);
+
+   if(sem_post(&CUDA_sem)== -1)
+ {
+    LOG(ERROR) << "ERROR AT SEM_WAIT\n";
+    LOG(ERROR) << errno;
+
+ }
     double elapsedTime;
     elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
     elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
 
-  PRINT_STAT_DOUBLE("inference latency", elapsedTime);
+ // PRINT_STAT_DOUBLE("inference latency", elapsedTime);
 
 
-  STATS_END();
+ // STATS_END();
 
 
   std::string temp = std::to_string(elapsedTime);
 
-  //write to outputfile
-  pthread_rwlock_wrlock(&output_rwlock);
-  fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
-  fwrite("\n", sizeof(char), 1, pFile);
-  fflush(pFile);
-  pthread_rwlock_unlock(&output_rwlock);
 
   if (out_size != out_blobs[0]->count())
     LOG(FATAL) << "out_size =! out_blobs[0]->count())";
   else
     memcpy(out, out_blobs[0]->cpu_data(), out_size * sizeof(float));
+
+    return elapsedTime;
 }
 
 pthread_t request_thread_init(int sock) {
@@ -93,10 +104,13 @@ pthread_t request_thread_init(int sock) {
   pthread_attr_t attr;
   pthread_attr_init(&attr);
   pthread_attr_setstacksize(&attr, 1024 * 1024);
+  pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
 
   // Create a new thread starting with the function request_handler
   pthread_t tid;
-
+  pthread_mutex_lock(&CUDA_mutex);
+  active_threads++;
+  pthread_mutex_unlock(&CUDA_mutex);
     int error = pthread_create(&tid, &attr, request_handler, (void*)(intptr_t)sock);
     if(error != 0)
         LOG(ERROR) << "Failed to create a request handler thread.\nERROR:" << error << "\n";
@@ -111,10 +125,12 @@ void* request_handler(void* sock) {
   // 1. Client sends the application type
   // 2. Client sends the size of incoming data
   // 3. Client sends data
+  
+  
+    struct timeval t1, t2;
 
   char req_name[MAX_REQ_SIZE];
   SOCKET_receive(socknum, (char*)&req_name, MAX_REQ_SIZE, debug);
-  printf("Checking if djinn has to be reset \n");
   //LOG(ERROR) << "Checking if Djinn has to be reset " << req_name << " " << (char*)req_name << endl;
   if (strcmp(req_name, "DONE") == 0)
   {
@@ -184,13 +200,15 @@ void* request_handler(void* sock) {
   // device (GPU)
   bool warmup = true;
 
-  while (1) {
-    LOG(INFO) << "Reading from socket.";
+ while (1) {
+   // LOG(INFO) << "Reading from socket.";
     int rcvd =
         SOCKET_receive(socknum, (char*)in, in_elts * sizeof(float), debug);
 
-    if (rcvd == 0) break;  // Client closed the socket
+    gettimeofday(&t1, NULL);
+     if (rcvd == 0) break;  // Client closed the socket
 
+    /*
     if (warmup && gpu) {
       float loss;
         printf("INPUT_BLOBS\n");
@@ -202,13 +220,24 @@ void* request_handler(void* sock) {
       out_blobs = nets[req_name]->ForwardPrefilled(&loss);
         printf("END\n");
       warmup = false;
-    }
+    }*/
 
-    LOG(INFO) << "Executing forward pass.";
-    SERVICE_fwd(in, in_elts, out, out_elts, nets[req_name]);
+    //LOG(INFO) << "Executing forward pass.";
+    double service_time = SERVICE_fwd(in, in_elts, out, out_elts, nets[req_name]);
 
+    gettimeofday(&t2,NULL);
     LOG(INFO) << "Writing to socket.";
     SOCKET_send(socknum, (char*)out, out_elts * sizeof(float), debug);
+
+    double elapsedTime;
+    elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
+    elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
+  //write to outputfile
+    std::string temp = std::to_string(service_time) + "," + std::to_string(elapsedTime) + "\n";
+    pthread_rwlock_wrlock(&output_rwlock);
+    fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
+    fflush(pFile);
+     pthread_rwlock_unlock(&output_rwlock);
   }
 
   // Exit the thread
@@ -216,6 +245,9 @@ void* request_handler(void* sock) {
 
   free(in);
   free(out);
-  pthread_exit((void*)0);
+  pthread_mutex_lock(&CUDA_mutex);
+  active_threads--;
+  pthread_mutex_unlock(&CUDA_mutex);
+  pthread_detach(pthread_self());
   return (void*)0;
 }
