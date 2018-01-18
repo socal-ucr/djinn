@@ -2,7 +2,7 @@ COMMON=../common
 include $(COMMON)/Makefile.config
 
 CXX = g++
-CXX_FLAGS  = -std=c++11 -g \
+CXX_FLAGS  = -std=c++11  \
 						 $(INCLUDE_DIRS) \
 						 -fpermissive \
 						 -I$(COMMON)/include \
