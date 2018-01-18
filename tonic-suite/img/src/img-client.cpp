@@ -35,7 +35,7 @@
 using namespace std;
 using namespace cv;
 
-#define NUM_CLIENTS 4
+#define NUM_CLIENTS 128
 
 TonicSuiteApp app;
 pthread_t* threads;
@@ -61,13 +61,18 @@ void* create_thread_socket(void *args)
     double elapsed_time;
     int* tid = (int*)args;
     
-    int socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno+*tid, 0);
+    int socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
 
     float* preds = (float*)malloc(app.pl.num * sizeof(float));
 
     int i;
     for(int i = *tid-1; i >= 0; i--)
         usleep(distribution[i]);
+
+    double RTTimes[distribution.size()/NUM_CLIENTS];
+    int RTTindex = 0;
+    printf("Start Thread:%d\n",*tid);
+    int TOOLONG = 0;
     for(i=*tid; i < total_requests; i+=NUM_CLIENTS)
     {  
         gettimeofday(&t_start, NULL);
@@ -86,16 +91,19 @@ void* create_thread_socket(void *args)
         elapsed_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;
         elapsed_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0;
 
-        std::string temp = std::to_string(elapsed_time);
+        RTTimes[RTTindex] = elapsed_time;
+        RTTindex++;
+
         //write to outputfile
+        std::string temp = std::to_string(elapsed_time);
         pthread_rwlock_wrlock(&output_rwlock);
         fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
         fwrite("\n", sizeof(char), 1, pFile);
         fflush(pFile);
         pthread_rwlock_unlock(&output_rwlock);
-        double wait_time = 0;
-        
-        for(int j=0;j < NUM_CLIENTS;j++)
+ 
+        double wait_time = 0; 
+        for(int j=0;j < NUM_CLIENTS && i+j < total_requests;j++)
             wait_time += distribution[i+j];
 
         gettimeofday(&t_end, NULL);
@@ -106,17 +114,34 @@ void* create_thread_socket(void *args)
 
         if(wait_time > 0)
             usleep(wait_time);
+        else if (i+NUM_CLIENTS > total_requests)
+            break;
         else
-            printf("TOO LONG\n");
+            TOOLONG++;
     }
+/*
+    //printf("Write Thread:%d\n",*tid);
+    for(int i = 0;i < distribution.size()/NUM_CLIENTS; i++)
+    {
+        //write to outputfile
+        std::string temp = std::to_string(RTTimes[i]);
+        pthread_rwlock_wrlock(&output_rwlock);
+        fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
+        fwrite("\n", sizeof(char), 1, pFile);
+        fflush(pFile);
+        pthread_rwlock_unlock(&output_rwlock);     
+    }
+*/
 
+    printf("Close Thread:%d,%d\n",*tid,TOOLONG);
     SOCKET_close(app.socketfd, 0);
 
-   free(preds);
+    free(preds);
     pthread_mutex_lock(&thread_count_mutex);
     active_threads--;
     pthread_mutex_unlock(&thread_count_mutex);
-    pthread_detach(pthread_self());
+    //pthread_detach(pthread_self());
+    return NULL;
 }
 
 void* create_thread_socket_v1(void *args)
@@ -159,7 +184,7 @@ void* create_thread_socket_v1(void *args)
     pthread_mutex_lock(&thread_count_mutex);
     active_threads--;
     pthread_mutex_unlock(&thread_count_mutex);
-    pthread_detach(pthread_self());
+    //pthread_detach(pthread_self());
     return (void*)elapsed_under;
 }
 
@@ -195,7 +220,7 @@ po::variables_map parse_opts(int ac, char** av) {
       "List of input images (1 jpg/line)")(
       "rps,r", po::value<int>()->default_value(1),
       "Requests per Second")(
-      "seconds,s", po::value<int>()->default_value(1),
+      "seconds,s", po::value<int>()->default_value(10),
       "Time program will run for in seconds")(
       "outfile,o", po::value<string>()->default_value("outfile"),
       "Name of outfile")
@@ -262,7 +287,7 @@ int main(int argc, char** argv)
     sleep_time = (1000000.0f / double(RPS));
 
   
-    threads = (pthread_t*)malloc(sizeof(pthread_t)*total_requests);
+    threads = (pthread_t*)malloc(sizeof(pthread_t)*NUM_CLIENTS);
     // DjiNN service or local?
     app.djinn = vm["djinn"].as<bool>();
     app.gpu = vm["gpu"].as<bool>();
@@ -372,10 +397,11 @@ int main(int argc, char** argv)
     std::string outfileName;
     outfileName = vm["outfile"].as<string>() + ".out";
     pFile = fopen(outfileName.c_str(),"w");
-    if(pFile == NULL){
-	    LOG(INFO) << "Could not create out file";
-	    return 0;
-	}
+    if(pFile == NULL)
+    {
+	LOG(INFO) << "Could not create out file";
+	return 0;
+    }
     if (app.djinn)
     {
         if (seconds > 1)
@@ -383,43 +409,22 @@ int main(int argc, char** argv)
             int PORTS[NUM_CLIENTS];
             for(int i=0;i<NUM_CLIENTS;i++)
                 PORTS[i] = i;
-            int P = 0;
             pthread_attr_t attr;
             pthread_attr_init(&attr);
             pthread_attr_setstacksize(&attr, 1024 * 1024);
-            pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
-            //for(int i = 0; i < total_requests; i++)
+            pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
             for(int i = 0; i < NUM_CLIENTS; i++)
             {
                 pthread_t new_thread_id;
                 pthread_mutex_lock(&thread_count_mutex);
                 active_threads++;
                 pthread_mutex_unlock(&thread_count_mutex);
-                pthread_create(&new_thread_id,&attr,create_thread_socket,(void*)&(PORTS[P]));
-                P = (P + 1) % NUM_CLIENTS;
-              //  usleep(distribution[i]);
+                pthread_create(&threads[i],&attr,create_thread_socket,(void*)&(PORTS[i]));
             }
-                while(active_threads != 0) {usleep(10);}
-          //  for (int i=0; i < total_requests; i++)
-            //    pthread_join(threads[i], NULL);
+            for (int i=0; i < NUM_CLIENTS; i++)
+                pthread_join(threads[i], NULL);
 
-/* 
-        app.socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, debug);
-         SOCKET_send(app.socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, debug);
-
-    // send len
-    SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
-
-    // send image(s)
-    SOCKET_send(app.socketfd, (char*)app.pl.data,
-                app.pl.num * app.pl.size * sizeof(float), debug);
-
-    SOCKET_receive(app.socketfd, (char*)preds, app.pl.num * sizeof(float),
-                   debug);
-    SOCKET_close(app.socketfd, debug);
-*/
-       }
-
+        }
         else
         {
             int* elapsed = (int*)calloc(sizeof(int), 14);
@@ -491,9 +496,6 @@ int main(int argc, char** argv)
         vector<Blob<float>*> out_blobs = app.net->ForwardPrefilled(&loss);
         memcpy(preds, out_blobs[0]->cpu_data(), app.pl.num * sizeof(float));
     }
-
-    //for (it = imgs.begin(); it != imgs.end(); it++)
-    //    LOG(INFO) << "Image: " << it->first << " class: " << preds[distance(imgs.begin(), it)] << endl;
 
     if (!app.djinn)
         free(app.net);
