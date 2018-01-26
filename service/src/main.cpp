@@ -33,8 +33,11 @@
 #include "socket.h"
 #include "thread.h"
 #include "tonic.h"
+//TITAN X
+//#define NUM_F_STATES 19
 
-#define NUM_F_STATES 19
+//P100
+#define NUM_F_STATES 10
 #define NUM_RPS 55
 
 using namespace std;
@@ -48,7 +51,11 @@ int clock_avg=0, clock_peak=0;
 bool reset_stats = false;
 bool debug;
 bool gpu;
-unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
+//TITAN X
+//unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
+
+//P100
+unsigned int F_STATES [NUM_F_STATES]= {0, 6, 14, 22, 30, 38, 46, 54, 62, 74};
 unsigned int RPS[NUM_RPS]=
 //{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 
 { 10,
@@ -254,15 +261,21 @@ int main(int argc, char* argv[]) {
 
     nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
 
-    nvmlChkError(nvmlDeviceGetHandleByIndex(device_count-1, &device), "GetHandle");
+    nvmlChkError(nvmlDeviceGetHandleByIndex(1, &device), "GetHandle");
     
     //get graphics clock info
    nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
 
-    for(int i = 0; i < 1; i++)
+    for(int i = 0; i < memClockCount; i++)
     {
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
     }
+    for(int i = 0; i < graphicClockCount[0];i++)
+    {
+        printf("%d:%d\n",i,graphicClocksMHz[0][i]);
+    }
+
+    exit(1);
 
   // Main thread for the server
   // Spawn a new thread for each request
