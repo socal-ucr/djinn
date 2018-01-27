@@ -27,6 +27,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <semaphore.h>
+#include <queue>
 
 #include "boost/program_options.hpp"
 #include "socket.h"
@@ -39,7 +40,9 @@
 using namespace std;
 namespace po = boost::program_options;
 
+
 map<string, Net<float>*> nets;
+queue<pthread_cond_t*> thread_queue;
 int power_avg=0, power_peak=0;
 int clock_avg=0, clock_peak=0;
 bool reset_stats = false;
@@ -61,14 +64,18 @@ unsigned int fs_index = 0;
 FILE * pFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 sem_t CUDA_sem;
-pthread_mutex_t CUDA_mutex= PTHREAD_MUTEX_INITIALIZER;
-   
+pthread_mutex_t GPU_mutex= PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t active_thread_mutex= PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t queue_mutex= PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t * condArray;
+
 unsigned int memClocksMHz[4];
 unsigned int graphicClocksMHz[4][150];
 unsigned int graphicClockCount[4] = {150, 150, 150, 150};
 unsigned int memClockCount = 4;
 unsigned int active_threads = 0; 
 
+unsigned long START_TIME;
 void  INThandler(int sig)
 {
 
@@ -293,6 +300,13 @@ int main(int argc, char* argv[]) {
   // how many threads to spawn before exiting
   // -1 to stay indefinitely open
   int total_thread_cnt = vm["threadcnt"].as<int>();
+  condArray = new pthread_cond_t[total_thread_cnt];
+  for(int i = 0; i < total_thread_cnt; i++)
+  {
+     int ret =  pthread_cond_init(&(condArray[i]),NULL);
+     if (ret)
+         printf("ERROR:%d\n",ret);
+  }
   int socketfd = SERVER_init(vm["portno"].as<int>());
   bool POWER = vm["power"].as<bool>();
   // Listen on socket
@@ -318,6 +332,11 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << errno;
         return(1);
     }
+
+
+    struct timeval time;
+    gettimeofday(&time,NULL);
+    START_TIME = (time.tv_sec * 1000000) + time.tv_usec;
 
     std::vector<pthread_t> threads;
     while (1) 
@@ -353,9 +372,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("PRINTING_POWER\n");
     if(POWER)
     {
+        printf("PRINTING_POWER\n");
         FILE *power_stats = fopen("power_stats.out", "a");
         if (power_stats == NULL)
         {

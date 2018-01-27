@@ -35,7 +35,7 @@
 using namespace std;
 using namespace cv;
 
-#define NUM_CLIENTS 128
+#define NUM_CLIENTS 32
 
 TonicSuiteApp app;
 pthread_t* threads;
@@ -73,10 +73,10 @@ void* create_thread_socket(void *args)
     int RTTindex = 0;
     printf("Start Thread:%d\n",*tid);
     int TOOLONG = 0;
+    SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
     for(i=*tid; i < total_requests; i+=NUM_CLIENTS)
     {  
         gettimeofday(&t_start, NULL);
-        SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
 
         // send len
         SOCKET_txsize(socketfd, app.pl.num * app.pl.size);
@@ -94,14 +94,6 @@ void* create_thread_socket(void *args)
         RTTimes[RTTindex] = elapsed_time;
         RTTindex++;
 
-        //write to outputfile
-        std::string temp = std::to_string(elapsed_time);
-        pthread_rwlock_wrlock(&output_rwlock);
-        fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
-        fwrite("\n", sizeof(char), 1, pFile);
-        fflush(pFile);
-        pthread_rwlock_unlock(&output_rwlock);
- 
         double wait_time = 0; 
         for(int j=0;j < NUM_CLIENTS && i+j < total_requests;j++)
             wait_time += distribution[i+j];
@@ -119,8 +111,10 @@ void* create_thread_socket(void *args)
         else
             TOOLONG++;
     }
-/*
-    //printf("Write Thread:%d\n",*tid);
+
+    printf("Close Thread:%d,%d\n",*tid,TOOLONG);
+    SOCKET_close(app.socketfd, 0);
+
     for(int i = 0;i < distribution.size()/NUM_CLIENTS; i++)
     {
         //write to outputfile
@@ -131,10 +125,8 @@ void* create_thread_socket(void *args)
         fflush(pFile);
         pthread_rwlock_unlock(&output_rwlock);     
     }
-*/
 
-    printf("Close Thread:%d,%d\n",*tid,TOOLONG);
-    SOCKET_close(app.socketfd, 0);
+
 
     free(preds);
     pthread_mutex_lock(&thread_count_mutex);
@@ -165,7 +157,6 @@ void* create_thread_socket_v1(void *args)
 
     elapsed_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;
     elapsed_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0;
-    //printf("Elapsed time %lf\n", elapsed_time);
 
     std::string temp = std::to_string(elapsed_time);
     //write to outputfile
