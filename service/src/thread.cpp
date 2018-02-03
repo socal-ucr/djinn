@@ -41,15 +41,17 @@ extern pthread_rwlock_t output_rwlock;
 extern sem_t CUDA_sem;
 extern pthread_mutex_t GPU_mutex;
 extern pthread_mutex_t active_thread_mutex;
-extern pthread_mutex_t queue_mutex;
+extern pthread_mutex_t queue_mutex1;
+extern pthread_mutex_t queue_mutex2;
 
 extern int power_avg, power_peak;
 extern int clock_avg, clock_peak;
 extern bool reset_stats;
 extern int active_threads;
+extern unsigned int current_requests;
 
 extern pthread_cond_t * condArray;
-extern std::queue<pthread_cond_t*> thread_queue;
+extern std::queue<pthread_cond_t*> thread_queue[NUM_QUEUES];
 bool FLAG = false;
 extern unsigned long START_TIME;
 double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
@@ -69,22 +71,27 @@ double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
     float loss;
     bool empty;
     pthread_cond_t* cond = &(condArray[condMap[pthread_self()]]);
+    int queueID = condMap[pthread_self()] % NUM_QUEUES;
+
+    pthread_mutex_t* queue_mutex;
+    if (queueID == 0)
+        queue_mutex = &queue_mutex1;
+    else
+        queue_mutex = &queue_mutex2;
+
     
-    pthread_mutex_lock(&queue_mutex);
-    thread_queue.push(cond);
-    //pthread_mutex_lock(&GPU_mutex); 
+    pthread_mutex_lock(queue_mutex);
+    thread_queue[queueID].push(cond);
+    current_requests++;
     gettimeofday(&qt1, NULL);
-    while(thread_queue.front() != cond)
+    while(thread_queue[queueID].front() != cond)
     {
-        printf("Wating:%lu\n",thread_queue.size());
-        pthread_cond_wait(cond,&queue_mutex);
+        pthread_cond_wait(cond,queue_mutex);
     }
     gettimeofday(&qt2, NULL);
-    pthread_mutex_unlock(&queue_mutex);
-   // pthread_mutex_unlock(&GPU_mutex);
+    pthread_mutex_unlock(queue_mutex);
     qtime = (qt2.tv_sec - qt1.tv_sec) * 1000.0;
     qtime += (qt2.tv_usec - qt1.tv_usec) / 1000.0;
-    
     vector<Blob<float>*> in_blobs = net->input_blobs();
     gettimeofday(&st1, NULL);
     in_blobs[0]->set_cpu_data(in);
@@ -92,16 +99,16 @@ double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
     memcpy(out, out_blobs[0]->cpu_data(), sizeof(float));
     gettimeofday(&st2, NULL);
 
-    
-    pthread_mutex_lock(&queue_mutex);
-    thread_queue.pop();
-    if(!thread_queue.empty())
+    pthread_mutex_lock(queue_mutex);
+    thread_queue[queueID].pop();
+    //current_requests--;
+    if(!thread_queue[queueID].empty())
     {
-        pthread_cond_t* next = thread_queue.front();
+        pthread_cond_t* next = thread_queue[queueID].front();
         int ret = pthread_cond_signal(next);
     }
 
-    pthread_mutex_unlock(&queue_mutex);
+    pthread_mutex_unlock(queue_mutex);
 
     double elapsedTime = (st2.tv_sec - st1.tv_sec) * 1000.0;
     elapsedTime += (st2.tv_usec - st1.tv_usec) / 1000.0;

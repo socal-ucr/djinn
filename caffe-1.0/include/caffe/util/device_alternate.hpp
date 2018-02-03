@@ -94,7 +94,14 @@ extern float THREAD_BLOCK_REDUCTION_FACTOR;
 
 // CUDA: number of blocks for threads.
 inline int CAFFE_GET_BLOCKS(const int N) {
-  return int(floor((ceil(float(N)*THREAD_BLOCK_REDUCTION_FACTOR) + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS));
+    
+
+    if ((N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS < THREAD_BLOCK_REDUCTION_FACTOR)
+        return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
+    else
+        return THREAD_BLOCK_REDUCTION_FACTOR;
+        
+    //return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
 }
 
 }  // namespace caffe

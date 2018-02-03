@@ -44,8 +44,9 @@ using namespace std;
 namespace po = boost::program_options;
 
 
+unsigned int current_requests;
 map<string, Net<float>*> nets;
-queue<pthread_cond_t*> thread_queue;
+queue<pthread_cond_t*> thread_queue[NUM_QUEUES];
 int power_avg=0, power_peak=0;
 int clock_avg=0, clock_peak=0;
 bool reset_stats = false;
@@ -68,12 +69,14 @@ unsigned int RPS[NUM_RPS]=
  61, 62, 63, 64};
 unsigned int rps_index = 0;
 unsigned int fs_index = 0;
+unsigned int PTable [] = {16,16,16,16,16,16,16,16,14,13,13,13,11,11,10,10,10,10,10,8,7,7,6,5,5,5,5,2};
 FILE * pFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 sem_t CUDA_sem;
 pthread_mutex_t GPU_mutex= PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t active_thread_mutex= PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t queue_mutex= PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t queue_mutex1= PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t queue_mutex2= PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t * condArray;
 
 unsigned int memClocksMHz[4];
@@ -122,7 +125,7 @@ void nvmlChkError(nvmlReturn_t result, const char * error)
         result = nvmlShutdown();
         if (NVML_SUCCESS != result)
             printf("Failed to shutdown NVML: %s\n", nvmlErrorString(result));
- 
+
         exit(1);
     } 
 }
@@ -145,7 +148,10 @@ void *record_power(void* args)
 
     vector<int> freqArray;
     vector<int> powerArray;
-    int n=1;
+    unsigned long n=1;
+    int requests = 0;
+    int second;
+    int previous = 0;
     while(1)
     {
         if(kill_power_t)
@@ -186,11 +192,38 @@ void *record_power(void* args)
         //SM FREQUENCY
         nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
         freqArray.push_back((int)clock);
-        clock_avg = clock_avg+(((int)clock-clock_avg)/++n);
+        clock_avg = clock_avg+(((int)clock-clock_avg)/n);
         if (clock_peak<(int)clock) clock_peak=(int)clock;
-        
+      
+      // printf("%lu,%d,%d,%d,%lu\n",n,clock,clock_avg,(int)clock-clock_avg,((int)clock-clock_avg)/n); 
+      // printf("%lu,%d,%d,%d,%lu\n",n,power,power_avg,(int)power-power_avg,((int)power-power_avg)/n); 
+
         usleep(1000);
-        
+       /* 
+        second++;
+        if(second >= 1000)
+        {
+            requests = current_requests;
+            int RPS = (requests - previous) / 3;
+            pthread_mutex_lock(&GPU_mutex);
+            printf("RPS:%d,CLOCK:%d\n",RPS,clock);
+            if(RPS < 28)
+            {
+                printf("SetClock:%d\n",PTable[RPS]);
+
+                nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][PTable[RPS]]),"SetClocks");
+            }
+            else
+            {
+                //cudaDeviceReset();
+                //nvmlChkError(nvmlDeviceSetApplicationsClocks(*device, memClocksMHz[0], graphicClocksMHz[0][1]),"SetClocks");
+            }
+            printf("RPS:%d,CLOCK:%d\n",RPS,clock); 
+            pthread_mutex_unlock(&GPU_mutex);
+            second = 0;
+            previous = requests;
+        }
+        */
     }
     
     FILE *power_stats = fopen("power_stats.out", "a");
@@ -287,13 +320,14 @@ int main(int argc, char* argv[]) {
     Caffe::set_mode(Caffe::GPU);
   else
     Caffe::set_mode(Caffe::CPU);
-  caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>()) / 100.0f;
-
+  //caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>()) / 100.0f;
+  caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>());
+/*
   if(caffe::THREAD_BLOCK_REDUCTION_FACTOR > 1 || caffe::THREAD_BLOCK_REDUCTION_FACTOR < 0)
   {
     printf("TBRF must be between 0 and 1\n");
     exit(1);
-  }
+  }*/
   int fState = vm["clock"].as<int>();
   if (fState != -1)
      nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
@@ -339,6 +373,7 @@ int main(int argc, char* argv[]) {
     pthread_t t_rp;
     // Main Loop
     int thread_cnt = 0;
+    current_requests = 0;
     if(sem_init(&CUDA_sem, 0, 4)==-1)
     {
         LOG(ERROR) << "Failed to INIT SEMAPHORE.\n";
