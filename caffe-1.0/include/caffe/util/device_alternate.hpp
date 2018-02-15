@@ -82,26 +82,22 @@ const char* cublasGetErrorString(cublasStatus_t error);
 const char* curandGetErrorString(curandStatus_t error);
 
 // CUDA: thread number configuration.
-// Use 1024 threads per block, which requires cuda sm_2x or above,
-// or fall back to attempt compatibility (best of luck to you).
-#if __CUDA_ARCH__ >= 200
-    const int CAFFE_CUDA_NUM_THREADS = 1024;
-#else
-    const int CAFFE_CUDA_NUM_THREADS = 512;
-#endif
+const int CAFFE_CUDA_NUM_THREADS = 512;
 
 extern float THREAD_BLOCK_REDUCTION_FACTOR;
 
 // CUDA: number of blocks for threads.
 inline int CAFFE_GET_BLOCKS(const int N) {
     
-
-    if ((N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS < THREAD_BLOCK_REDUCTION_FACTOR)
+    if (THREAD_BLOCK_REDUCTION_FACTOR == -1)
         return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
     else
-        return THREAD_BLOCK_REDUCTION_FACTOR;
-        
-    //return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
+    {
+        if ((N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS < THREAD_BLOCK_REDUCTION_FACTOR)
+            return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
+        else
+            return THREAD_BLOCK_REDUCTION_FACTOR;
+    }   
 }
 
 }  // namespace caffe

@@ -30,6 +30,7 @@
 #include <queue>
 #include "timer.h"
 #include "thread.h"
+#include "cu_helper.h"
 #include <map>
 
 map<pthread_t,int> condMap;
@@ -54,11 +55,12 @@ extern pthread_cond_t * condArray;
 extern std::queue<pthread_cond_t*> thread_queue[NUM_QUEUES];
 bool FLAG = false;
 extern unsigned long START_TIME;
-double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
-                 Net<float>* net,double &qtime)
+
+unsigned long SERVICE_fwd(float* in, int in_size, float* out, int out_size,
+                 Net<float>* net,unsigned long &qtime)
 {
 
-    struct timeval st1, st2,qt1,qt2;
+    struct timespec st1, st2,qt1,qt2;
     string net_name = net->name();
     //STATS_INIT("service", "DjiNN service inference");
     //  PRINT_STAT_STRING("network", net_name.c_str());
@@ -83,21 +85,25 @@ double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
     pthread_mutex_lock(queue_mutex);
     thread_queue[queueID].push(cond);
     current_requests++;
-    gettimeofday(&qt1, NULL);
+    clock_gettime(CLOCK_MONOTONIC,&qt1);
     while(thread_queue[queueID].front() != cond)
     {
         pthread_cond_wait(cond,queue_mutex);
     }
-    gettimeofday(&qt2, NULL);
+    clock_gettime(CLOCK_MONOTONIC,&qt2);
     pthread_mutex_unlock(queue_mutex);
-    qtime = (qt2.tv_sec - qt1.tv_sec) * 1000.0;
-    qtime += (qt2.tv_usec - qt1.tv_usec) / 1000.0;
+    qtime = (qt2.tv_sec - qt1.tv_sec) * 1000000ul;
+    qtime += (qt2.tv_nsec - qt1.tv_nsec) / 1000;
+
     vector<Blob<float>*> in_blobs = net->input_blobs();
-    gettimeofday(&st1, NULL);
+
+    clock_gettime(CLOCK_MONOTONIC,&st1);
+
     in_blobs[0]->set_cpu_data(in);
     vector<Blob<float>*> out_blobs = net->ForwardPrefilled(&loss);
     memcpy(out, out_blobs[0]->cpu_data(), sizeof(float));
-    gettimeofday(&st2, NULL);
+
+    clock_gettime(CLOCK_MONOTONIC,&st2);
 
     pthread_mutex_lock(queue_mutex);
     thread_queue[queueID].pop();
@@ -110,8 +116,8 @@ double SERVICE_fwd(float* in, int in_size, float* out, int out_size,
 
     pthread_mutex_unlock(queue_mutex);
 
-    double elapsedTime = (st2.tv_sec - st1.tv_sec) * 1000.0;
-    elapsedTime += (st2.tv_usec - st1.tv_usec) / 1000.0;
+    unsigned long elapsedTime = (st2.tv_sec - st1.tv_sec) * 1000000;
+    elapsedTime += (st2.tv_nsec - st1.tv_nsec) / 1000;
 
     // PRINT_STAT_DOUBLE("inference latency", elapsedTime);
     // STATS_END();
@@ -229,36 +235,36 @@ void* request_handler(void* sock)
     // device (GPU)
     bool warmup = true;
 
-    struct timeval t1, t2,time;
+
+    struct timespec t1, t2,time;
     while (1) 
     {
         
-        gettimeofday(&t1, NULL);
+        clock_gettime(CLOCK_MONOTONIC,&t1);
         // LOG(INFO) << "Reading from socket.";
         int rcvd =
             SOCKET_receive(socknum, (char*)in, in_elts * sizeof(float), debug);
 
-        gettimeofday(&time,NULL);
-        unsigned long stamp = (time.tv_sec * 1000000) + time.tv_usec;
+        clock_gettime(CLOCK_MONOTONIC,&time);
+        unsigned long stamp = (time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul);
         stamp -= START_TIME;
         if (rcvd == 0) break;  // Client closed the socket
 
 
         //LOG(INFO) << "Executing forward pass.";
-        double qtime;
-        double service_time = SERVICE_fwd(in, in_elts, out, out_elts, nets[req_name],qtime);
+        unsigned long qtime;
+        unsigned long service_time = SERVICE_fwd(in, in_elts, out, out_elts, nets[req_name],qtime);
 
-        LOG(INFO) << "Writing to socket.";
-        SOCKET_send(socknum, (char*)out, out_elts * sizeof(float), debug);
+       // LOG(INFO) << "Writing to socket.";
+       //SOCKET_send(socknum, (char*)out, out_elts * sizeof(float), debug);
 
         //write to outputfile
         
-        gettimeofday(&t2, NULL);
-        double total = (t2.tv_sec - t1.tv_sec) * 1000.0;
-        total += (t2.tv_usec - t1.tv_usec) / 1000.0;
+        clock_gettime(CLOCK_MONOTONIC,&t2);
+        unsigned long total = (t2.tv_sec - t1.tv_sec) * 1000000ul;
+        total += (t2.tv_nsec - t1.tv_nsec) / 1000ul;
         output.push_back(std::to_string(stamp) + "," + std::to_string(service_time) + "," + std::to_string(qtime) + "," + std::to_string(total) + "\n");
 
-        
     }
 
     // Exit the thread

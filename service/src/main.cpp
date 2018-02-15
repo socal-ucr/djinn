@@ -28,6 +28,7 @@
 #include <signal.h>
 #include <semaphore.h>
 #include <queue>
+#include <time.h>
 
 #include "boost/program_options.hpp"
 #include "socket.h"
@@ -199,31 +200,8 @@ void *record_power(void* args)
       // printf("%lu,%d,%d,%d,%lu\n",n,power,power_avg,(int)power-power_avg,((int)power-power_avg)/n); 
 
         usleep(1000);
-       /* 
-        second++;
-        if(second >= 1000)
-        {
-            requests = current_requests;
-            int RPS = (requests - previous) / 3;
-            pthread_mutex_lock(&GPU_mutex);
-            printf("RPS:%d,CLOCK:%d\n",RPS,clock);
-            if(RPS < 28)
-            {
-                printf("SetClock:%d\n",PTable[RPS]);
-
-                nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][PTable[RPS]]),"SetClocks");
-            }
-            else
-            {
-                //cudaDeviceReset();
-                //nvmlChkError(nvmlDeviceSetApplicationsClocks(*device, memClocksMHz[0], graphicClocksMHz[0][1]),"SetClocks");
-            }
-            printf("RPS:%d,CLOCK:%d\n",RPS,clock); 
-            pthread_mutex_unlock(&GPU_mutex);
-            second = 0;
-            previous = requests;
-        }
-        */
+       
+        
     }
     
     FILE *power_stats = fopen("power_stats.out", "a");
@@ -251,7 +229,7 @@ po::variables_map parse_opts(int ac, char** av) {
       "Directory with configs and weights")(
       "portno,p", po::value<int>()->default_value(8080),
       "Port to open DjiNN on")(
-      "tbrf,T", po::value<int>()->default_value(100),
+      "tbrf,T", po::value<int>()->default_value(-1),
       "Reduce the # of TB by factor of value")(
       "clock,cl", po::value<int>()->default_value(-1),
       "Set Clock state 0-18,-1 for default")(
@@ -283,7 +261,6 @@ po::variables_map parse_opts(int ac, char** av) {
 }
 
 int main(int argc, char* argv[]) {
-
     signal(SIGINT, INThandler);
     nvmlReturn_t result;
     unsigned int device_count;
@@ -303,12 +280,6 @@ int main(int argc, char* argv[]) {
     {
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
     }
-    for(int i = 0; i < graphicClockCount[0];i++)
-    {
-        printf("%d:%d\n",i,graphicClocksMHz[0][i]);
-    }
-
-    exit(1);
 
   // Main thread for the server
   // Spawn a new thread for each request
@@ -317,17 +288,14 @@ int main(int argc, char* argv[]) {
   gpu = vm["gpu"].as<bool>();
   Caffe::set_phase(Caffe::TEST);
   if (vm["gpu"].as<bool>())
+  {
     Caffe::set_mode(Caffe::GPU);
+    Caffe::SetDevice(1);
+  }
   else
     Caffe::set_mode(Caffe::CPU);
-  //caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>()) / 100.0f;
+
   caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>());
-/*
-  if(caffe::THREAD_BLOCK_REDUCTION_FACTOR > 1 || caffe::THREAD_BLOCK_REDUCTION_FACTOR < 0)
-  {
-    printf("TBRF must be between 0 and 1\n");
-    exit(1);
-  }*/
   int fState = vm["clock"].as<int>();
   if (fState != -1)
      nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
@@ -382,9 +350,9 @@ int main(int argc, char* argv[]) {
     }
 
 
-    struct timeval time;
-    gettimeofday(&time,NULL);
-    START_TIME = (time.tv_sec * 1000000) + time.tv_usec;
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC,&time);
+    START_TIME = (time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul);
 
     std::vector<pthread_t> threads;
     while (1) 
