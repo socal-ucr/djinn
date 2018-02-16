@@ -27,9 +27,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <semaphore.h>
-#include <queue>
 #include <time.h>
-
 #include "boost/program_options.hpp"
 #include "socket.h"
 #include "thread.h"
@@ -44,10 +42,7 @@
 using namespace std;
 namespace po = boost::program_options;
 
-
-unsigned int current_requests;
 map<string, Net<float>*> nets;
-queue<pthread_cond_t*> thread_queue[NUM_QUEUES];
 int power_avg=0, power_peak=0;
 int clock_avg=0, clock_peak=0;
 bool reset_stats = false;
@@ -73,18 +68,12 @@ unsigned int fs_index = 0;
 unsigned int PTable [] = {16,16,16,16,16,16,16,16,14,13,13,13,11,11,10,10,10,10,10,8,7,7,6,5,5,5,5,2};
 FILE * pFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
-sem_t CUDA_sem;
 pthread_mutex_t GPU_mutex= PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t active_thread_mutex= PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t queue_mutex1= PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t queue_mutex2= PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t * condArray;
 
 unsigned int memClocksMHz[4];
 unsigned int graphicClocksMHz[4][150];
 unsigned int graphicClockCount[4] = {150, 150, 150, 150};
 unsigned int memClockCount = 4;
-unsigned int active_threads = 0; 
 
 unsigned long START_TIME;
 void  INThandler(int sig)
@@ -315,13 +304,6 @@ int main(int argc, char* argv[]) {
   // how many threads to spawn before exiting
   // -1 to stay indefinitely open
   int total_thread_cnt = vm["threadcnt"].as<int>();
-  condArray = new pthread_cond_t[total_thread_cnt];
-  for(int i = 0; i < total_thread_cnt; i++)
-  {
-     int ret =  pthread_cond_init(&(condArray[i]),NULL);
-     if (ret)
-         printf("ERROR:%d\n",ret);
-  }
   int socketfd = SERVER_init(vm["portno"].as<int>());
   bool POWER = vm["power"].as<bool>();
   // Listen on socket
@@ -341,20 +323,19 @@ int main(int argc, char* argv[]) {
     pthread_t t_rp;
     // Main Loop
     int thread_cnt = 0;
-    current_requests = 0;
-    if(sem_init(&CUDA_sem, 0, 4)==-1)
-    {
-        LOG(ERROR) << "Failed to INIT SEMAPHORE.\n";
-        LOG(ERROR) << errno;
-        return(1);
-    }
-
 
     struct timespec time;
     clock_gettime(CLOCK_MONOTONIC,&time);
     START_TIME = (time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul);
 
     std::vector<pthread_t> threads;
+    pthread_t GPU_thread;
+    int error = pthread_create(&GPU_thread, NULL, GPU_handler, NULL);
+    if(error != 0)
+    {
+        LOG(ERROR) << "Failed to create a GPU handler thread.\nERROR:" << error << "\n";
+        exit(1);
+    }
     while (1) 
     {
         pthread_t new_thread_id;

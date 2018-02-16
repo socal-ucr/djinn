@@ -69,5 +69,6 @@ struct TonicSuiteApp {
 };
 
 void reshape(Net<float> *net, int input_size);
+void calculateShape(Net<float> *net, int input_size, int& in_count, int& out_count);
 
 #endif

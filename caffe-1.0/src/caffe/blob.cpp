@@ -6,6 +6,18 @@
 namespace caffe {
 
 template <typename Dtype>
+void Blob<Dtype>::Reshape(const int num)
+{
+  CHECK_GE(num, 0);
+  num_ = num;
+  count_ = num_ * channels_ * height_ * width_;
+  if (count_ > capacity_) {
+    capacity_ = count_;
+    data_.reset(new SyncedMemory(capacity_ * sizeof(Dtype)));
+    diff_.reset(new SyncedMemory(capacity_ * sizeof(Dtype)));
+  }
+}
+template <typename Dtype>
 void Blob<Dtype>::Reshape(const int num, const int channels, const int height,
     const int width) {
   CHECK_GE(num, 0);

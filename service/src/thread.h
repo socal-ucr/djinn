@@ -36,5 +36,6 @@ using namespace std;
 
 pthread_t request_thread_init(int sock);
 void* request_handler(void* sock);
+void* GPU_handler(void* args);
 
 #endif // #define _THREAD_H_

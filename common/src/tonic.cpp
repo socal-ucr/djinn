@@ -40,3 +40,18 @@ void reshape(Net<float> *net, int input_size) {
     net->output_blobs()[0]->Reshape(n_out, c_out, w_out, h_out);
   }
 }
+void calculateShape(Net<float> *net, int input_size, int &in_count, int &out_count)
+{
+  int c_in = net->input_blobs()[0]->channels();
+  int w_in = net->input_blobs()[0]->width();
+  int h_in = net->input_blobs()[0]->height();
+
+  int n_out = net->output_blobs()[0]->num();
+  int c_out = net->output_blobs()[0]->channels();
+  int w_out = net->output_blobs()[0]->width();
+  int h_out = net->output_blobs()[0]->height();
+
+  int n_in = input_size / (c_in * w_in * h_in);
+  in_count = n_in * c_in * w_in * h_in;
+  out_count = n_in * c_out * w_out * h_out;
+}
