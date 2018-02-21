@@ -85,13 +85,10 @@ void* Caffe::RNG::generator() {
 #else  // Normal GPU + CPU Caffe.
 
 Caffe::Caffe()
-    : cublas_handle_(NULL), curand_generator_(NULL), random_generator_(),
+    :  curand_generator_(NULL), random_generator_(),
     mode_(Caffe::CPU), phase_(Caffe::TRAIN) {
   // Try to create a cublas handler, and report an error if failed (but we will
   // keep the program running as one might just want to run CPU code).
-  if (cublasCreate(&cublas_handle_) != CUBLAS_STATUS_SUCCESS) {
-    LOG(ERROR) << "Cannot create Cublas handle. Cublas won't be available.";
-  }
   // Try to create a curand handler.
   if (curandCreateGenerator(&curand_generator_, CURAND_RNG_PSEUDO_DEFAULT)
       != CURAND_STATUS_SUCCESS ||
@@ -102,7 +99,6 @@ Caffe::Caffe()
 }
 
 Caffe::~Caffe() {
-  if (cublas_handle_) CUBLAS_CHECK(cublasDestroy(cublas_handle_));
   if (curand_generator_) {
     CURAND_CHECK(curandDestroyGenerator(curand_generator_));
   }
@@ -135,11 +131,9 @@ void Caffe::SetDevice(const int device_id) {
   // The call to cudaSetDevice must come before any calls to Get, which
   // may perform initialization using the GPU.
   CUDA_CHECK(cudaSetDevice(device_id));
-  if (Get().cublas_handle_) CUBLAS_CHECK(cublasDestroy(Get().cublas_handle_));
   if (Get().curand_generator_) {
     CURAND_CHECK(curandDestroyGenerator(Get().curand_generator_));
   }
-  CUBLAS_CHECK(cublasCreate(&Get().cublas_handle_));
   CURAND_CHECK(curandCreateGenerator(&Get().curand_generator_,
       CURAND_RNG_PSEUDO_DEFAULT));
   CURAND_CHECK(curandSetPseudoRandomGeneratorSeed(Get().curand_generator_,
@@ -202,36 +196,6 @@ Caffe::RNG& Caffe::RNG::operator=(const RNG& other) {
 
 void* Caffe::RNG::generator() {
   return static_cast<void*>(generator_->rng());
-}
-
-const char* cublasGetErrorString(cublasStatus_t error) {
-  switch (error) {
-  case CUBLAS_STATUS_SUCCESS:
-    return "CUBLAS_STATUS_SUCCESS";
-  case CUBLAS_STATUS_NOT_INITIALIZED:
-    return "CUBLAS_STATUS_NOT_INITIALIZED";
-  case CUBLAS_STATUS_ALLOC_FAILED:
-    return "CUBLAS_STATUS_ALLOC_FAILED";
-  case CUBLAS_STATUS_INVALID_VALUE:
-    return "CUBLAS_STATUS_INVALID_VALUE";
-  case CUBLAS_STATUS_ARCH_MISMATCH:
-    return "CUBLAS_STATUS_ARCH_MISMATCH";
-  case CUBLAS_STATUS_MAPPING_ERROR:
-    return "CUBLAS_STATUS_MAPPING_ERROR";
-  case CUBLAS_STATUS_EXECUTION_FAILED:
-    return "CUBLAS_STATUS_EXECUTION_FAILED";
-  case CUBLAS_STATUS_INTERNAL_ERROR:
-    return "CUBLAS_STATUS_INTERNAL_ERROR";
-#if CUDA_VERSION >= 6000
-  case CUBLAS_STATUS_NOT_SUPPORTED:
-    return "CUBLAS_STATUS_NOT_SUPPORTED";
-#endif
-#if CUDA_VERSION >= 6050
-  case CUBLAS_STATUS_LICENSE_ERROR:
-    return "CUBLAS_STATUS_LICENSE_ERROR";
-#endif
-  }
-  return "Unknown cublas status";
 }
 
 const char* curandGetErrorString(curandStatus_t error) {

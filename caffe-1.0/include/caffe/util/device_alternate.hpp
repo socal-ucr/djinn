@@ -32,7 +32,8 @@ void classname<Dtype>::funcname##_##gpu(const vector<Blob<Dtype>*>& top, \
 
 #else  // Normal GPU + CPU Caffe.
 
-#include <cublas_v2.h>
+//#include <cublas_v2.h>
+#include "../../../cublas-1.1/cublas11.h"
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand.h>
@@ -53,12 +54,7 @@ void classname<Dtype>::funcname##_##gpu(const vector<Blob<Dtype>*>& top, \
     CHECK_EQ(error, cudaSuccess) << " " << cudaGetErrorString(error); \
   } while (0)
 
-#define CUBLAS_CHECK(condition) \
-  do { \
-    cublasStatus_t status = condition; \
-    CHECK_EQ(status, CUBLAS_STATUS_SUCCESS) << " " \
-      << caffe::cublasGetErrorString(status); \
-  } while (0)
+#define CUBLAS_CHECK(condition) 
 
 #define CURAND_CHECK(condition) \
   do { \
@@ -78,7 +74,6 @@ void classname<Dtype>::funcname##_##gpu(const vector<Blob<Dtype>*>& top, \
 
 namespace caffe {
 // CUDA: library error reporting.
-const char* cublasGetErrorString(cublasStatus_t error);
 const char* curandGetErrorString(curandStatus_t error);
 
 // CUDA: thread number configuration.
