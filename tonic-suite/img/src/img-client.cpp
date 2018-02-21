@@ -35,49 +35,27 @@
 using namespace std;
 using namespace cv;
 
-#define NUM_CLIENTS 32
 
 TonicSuiteApp app;
-pthread_t* threads;
 vector<pair<string, Mat> > imgs;
 
-
-FILE * pFile;
-pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
-pthread_mutex_t thread_count_mutex = PTHREAD_MUTEX_INITIALIZER;
-int active_threads = 0;
-
-unsigned int microseconds = 1000000;
 namespace po = boost::program_options;
-
-unsigned int RPS;
-unsigned int seconds;
 unsigned int total_requests;
-double sleep_time;
 std::vector<unsigned int> distribution;
-void* create_thread_socket(void *args)
+
+int socketfd = -1;
+void* sender_thread(void *args)
 {
-    struct timeval t_start, t_end;
-    double elapsed_time;
-    int* tid = (int*)args;
-    
-    int socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
 
-    float* preds = (float*)malloc(app.pl.num * sizeof(float));
-
-    int i;
-    for(int i = *tid-1; i >= 0; i--)
-        usleep(distribution[i]);
-
-    double RTTimes[distribution.size()/NUM_CLIENTS];
-    int RTTindex = 0;
-    printf("Start Thread:%d\n",*tid);
-    int TOOLONG = 0;
-    SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
-    for(i=*tid; i < total_requests; i+=NUM_CLIENTS)
+    for (int i = 0; i < 25;i++)
+        printf("%f,",((double*)app.pl.data)[i]);
+    printf("\n");
+    socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
+    printf("Start Thread:%d\n",socketfd);
+    for(unsigned int i=0; i < total_requests; i++)
     {  
-        gettimeofday(&t_start, NULL);
 
+        SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
         // send len
         SOCKET_txsize(socketfd, app.pl.num * app.pl.size);
 
@@ -85,98 +63,33 @@ void* create_thread_socket(void *args)
         SOCKET_send(socketfd, (char*)app.pl.data,
                 app.pl.num * app.pl.size * sizeof(float), 0);
 
-        SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float),0);
-        gettimeofday(&t_end, NULL);
 
-        elapsed_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;
-        elapsed_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0;
-
-        RTTimes[RTTindex] = elapsed_time;
-        RTTindex++;
-
-        double wait_time = 0; 
-        for(int j=0;j < NUM_CLIENTS && i+j < total_requests;j++)
-            wait_time += distribution[i+j];
-
-        gettimeofday(&t_end, NULL);
-
-        elapsed_time = (t_end.tv_sec - t_start.tv_sec) * 1000000.0;
-        elapsed_time += (t_end.tv_usec - t_start.tv_usec);
-        wait_time -= elapsed_time;
-
-        if(wait_time > 0)
-            usleep(wait_time);
-        else if (i+NUM_CLIENTS > total_requests)
-            break;
-        else
-            TOOLONG++;
+        usleep(distribution[i]);
     }
 
-    printf("Close Thread:%d,%d\n",*tid,TOOLONG);
-    SOCKET_close(app.socketfd, 0);
+    printf("Close Thread\n");
+    SOCKET_close(socketfd, 0);
 
-    for(int i = 0;i < distribution.size()/NUM_CLIENTS; i++)
-    {
-        //write to outputfile
-        std::string temp = std::to_string(RTTimes[i]);
-        pthread_rwlock_wrlock(&output_rwlock);
-        fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
-        fwrite("\n", sizeof(char), 1, pFile);
-        fflush(pFile);
-        pthread_rwlock_unlock(&output_rwlock);     
-    }
-
-
-
-    free(preds);
-    pthread_mutex_lock(&thread_count_mutex);
-    active_threads--;
-    pthread_mutex_unlock(&thread_count_mutex);
-    //pthread_detach(pthread_self());
     return NULL;
 }
 
-void* create_thread_socket_v1(void *args)
+void * reciever_thread(void *args)
 {
-    int* portno = (int*)args;
-    int socketfd = CLIENT_init((char*)app.hostname.c_str(), *portno, 0);
     float* preds = (float*)malloc(app.pl.num * sizeof(float));
-    struct timeval t_start, t_end;
-    double elapsed_time;
-    int* elapsed_under = (int*)malloc(sizeof(int));
 
-
-    SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
-    SOCKET_txsize(socketfd, app.pl.num * app.pl.size);
-    SOCKET_send(socketfd, (char*)app.pl.data,
-                app.pl.num * app.pl.size * sizeof(float), 0);
-
-    gettimeofday(&t_start, NULL);
-    SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float), 0);
-    gettimeofday(&t_end, NULL);
-
-    elapsed_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;
-    elapsed_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0;
-
-    std::string temp = std::to_string(elapsed_time);
-    //write to outputfile
-    pthread_rwlock_wrlock(&output_rwlock);
-    fwrite(temp.c_str(),sizeof(char),temp.length(), pFile);
-    fwrite("\n", sizeof(char), 1, pFile);
-    fflush(pFile);
-    pthread_rwlock_unlock(&output_rwlock);
-
-    SOCKET_close(socketfd, 0);
-    *elapsed_under = (int)elapsed_time;
-    vector<pair<string, Mat> >::iterator it;
-
- 
-    free(preds);
-    pthread_mutex_lock(&thread_count_mutex);
-    active_threads--;
-    pthread_mutex_unlock(&thread_count_mutex);
-    //pthread_detach(pthread_self());
-    return (void*)elapsed_under;
+    printf("BEFORE:%d\n",socketfd);
+    while(socketfd == -1) {printf("SOCKETFD:%d\n",socketfd);};
+    printf("RECIEVING\n");
+    for(unsigned int i = 0; i < total_requests;i++)
+    {
+        SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float),0);
+        for (int j = 0; j < app.pl.num;j++)
+        {
+            printf("%f,",preds[j]);
+        }
+        printf("\n");
+    }
+    printf("RCLOSE\n");
 }
 
 void reset_djinn()
@@ -208,13 +121,7 @@ po::variables_map parse_opts(int ac, char** av) {
       "weights,w", po::value<string>()->default_value("imc.caffemodel"),
       "Pretrained weights (.caffemodel)")(
       "input,i", po::value<string>()->default_value("imc-list.txt"),
-      "List of input images (1 jpg/line)")(
-      "rps,r", po::value<int>()->default_value(1),
-      "Requests per Second")(
-      "seconds,s", po::value<int>()->default_value(10),
-      "Time program will run for in seconds")(
-      "outfile,o", po::value<string>()->default_value("outfile"),
-      "Name of outfile")
+      "List of input images (1 jpg/line)")
 
       ("djinn,d", po::value<bool>()->default_value(false),
        "Use DjiNN service?")("hostname,o",
@@ -273,12 +180,6 @@ int main(int argc, char** argv)
     app.weights = vm["common"].as<string>() + "weights/" + vm["weights"].as<string>();
     app.input = vm["input"].as<string>();
 
-    RPS = vm["rps"].as<int>();
-    seconds = vm["seconds"].as<int>();
-    sleep_time = (1000000.0f / double(RPS));
-
-  
-    threads = (pthread_t*)malloc(sizeof(pthread_t)*NUM_CLIENTS);
     // DjiNN service or local?
     app.djinn = vm["djinn"].as<bool>();
     app.gpu = vm["gpu"].as<bool>();
@@ -385,94 +286,19 @@ int main(int argc, char** argv)
     }
 
     //Create log file
-    std::string outfileName;
-    outfileName = vm["outfile"].as<string>() + ".out";
-    pFile = fopen(outfileName.c_str(),"w");
-    if(pFile == NULL)
-    {
-	LOG(INFO) << "Could not create out file";
-	return 0;
-    }
+    pthread_t Sender;
+    pthread_t Reciever;
     if (app.djinn)
     {
-        if (seconds > 1)
-        {
-            int PORTS[NUM_CLIENTS];
-            for(int i=0;i<NUM_CLIENTS;i++)
-                PORTS[i] = i;
-            pthread_attr_t attr;
-            pthread_attr_init(&attr);
-            pthread_attr_setstacksize(&attr, 1024 * 1024);
-            pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
-            for(int i = 0; i < NUM_CLIENTS; i++)
-            {
-                pthread_t new_thread_id;
-                pthread_mutex_lock(&thread_count_mutex);
-                active_threads++;
-                pthread_mutex_unlock(&thread_count_mutex);
-                pthread_create(&threads[i],&attr,create_thread_socket,(void*)&(PORTS[i]));
-            }
-            for (int i=0; i < NUM_CLIENTS; i++)
-                pthread_join(threads[i], NULL);
-
-        }
-        else
-        {
-            int* elapsed = (int*)calloc(sizeof(int), 14);
-            for(int i = 0; i < RPS; i++)
-                pthread_create(threads+i,NULL,create_thread_socket_v1,NULL);
-            for(int i=0; i < RPS; i++)
-            {
-                void* tmp = NULL;
-                pthread_join(threads[i], &tmp);
-                int tmp_int = *(int*) tmp;
-                if (tmp_int == 0)
-                    elapsed[0]++;
-                else if (tmp_int == 1)
-                    elapsed[1]++;
-                else if (tmp_int == 2)
-                    elapsed[2]++;
-                else if (tmp_int == 3)
-                    elapsed[3]++;
-                else if (tmp_int == 4)
-                    elapsed[4]++;
-                else if (tmp_int == 5)
-                    elapsed[5]++;
-                else if (tmp_int == 6)
-                    elapsed[6]++;
-                else if (tmp_int == 7)
-                    elapsed[7]++;
-                else if (tmp_int == 8)
-                    elapsed[8]++;
-                else if (tmp_int == 9)
-                    elapsed[9]++;
-                else if ((tmp_int >= 10)&&(tmp_int < 20))
-                    elapsed[10]++;
-                else if ((tmp_int >= 20)&&(tmp_int < 40))
-                    elapsed[11]++;
-                else if ((tmp_int >= 40)&&(tmp_int < 60))
-                    elapsed[12]++;
-                else
-                    elapsed[13]++;
-            }
-            FILE *fresp;
-            fresp = fopen("responses.txt", "a");
-            std::string rps_string = std::to_string(RPS);
-            fwrite("\n", sizeof(char), 1, fresp);
-            fwrite("\n", sizeof(char), 1, fresp);
-            fwrite(rps_string.c_str(), sizeof(char), rps_string.length(), fresp);
-            fwrite("\n", sizeof(char), 1, fresp);
-            fwrite("\n", sizeof(char), 1, fresp);
-            for(int i=0; i < 14; i++)
-            {
-                std::string time = std::to_string(elapsed[i]);
-                fwrite(time.c_str(), sizeof(char), time.length(), fresp);
-                fwrite("\n", sizeof(char), 1, fresp);
-            }
-            fwrite("----", sizeof(char)*4, 1, fresp);
-            fflush(fresp);
-
-        }
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, 1024 * 1024);
+        pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
+        pthread_create(&Sender,&attr,sender_thread,NULL);
+        pthread_create(&Reciever,&attr,reciever_thread,NULL);
+            
+        pthread_join(Sender, NULL);
+        pthread_join(Reciever, NULL);
 
         //reset_djinn();
     }
@@ -493,7 +319,6 @@ int main(int argc, char** argv)
 
     free(app.pl.data);
     free(preds);
-    free(threads);
     return 0;
 
 }

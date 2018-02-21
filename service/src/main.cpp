@@ -47,7 +47,7 @@ int power_avg=0, power_peak=0;
 int clock_avg=0, clock_peak=0;
 bool reset_stats = false;
 bool debug;
-bool gpu;
+int gpu;
 //TITAN X
 //unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
 
@@ -134,7 +134,6 @@ void *record_power(void* args)
     unsigned int clock;
     nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
     clock_avg = (int)clock;
-   // caffe::THREAD_BLOCK_MODIFIER = 1;
 
     vector<int> freqArray;
     vector<int> powerArray;
@@ -185,12 +184,8 @@ void *record_power(void* args)
         clock_avg = clock_avg+(((int)clock-clock_avg)/n);
         if (clock_peak<(int)clock) clock_peak=(int)clock;
       
-      // printf("%lu,%d,%d,%d,%lu\n",n,clock,clock_avg,(int)clock-clock_avg,((int)clock-clock_avg)/n); 
-      // printf("%lu,%d,%d,%d,%lu\n",n,power,power_avg,(int)power-power_avg,((int)power-power_avg)/n); 
 
         usleep(1000);
-       
-        
     }
     
     FILE *power_stats = fopen("power_stats.out", "a");
@@ -231,7 +226,7 @@ po::variables_map parse_opts(int ac, char** av) {
           "weights,w", po::value<string>()->default_value("weights/"),
           "Directory containing weights (in common)")
 
-          ("gpu,g", po::value<bool>()->default_value(false), "Use GPU?")(
+          ("gpu,g", po::value<int>()->default_value(-1), "Set GPU device, set -1 if no GPU")(
               "debug,v", po::value<bool>()->default_value(false),
               "Turn on all debug")("threadcnt,t",
                                    po::value<int>()->default_value(-1),
@@ -256,33 +251,35 @@ int main(int argc, char* argv[]) {
     nvmlDevice_t device;
  
     //initialize nvml
-   nvmlChkError(nvmlInit(), "nvmlInit");
+    nvmlChkError(nvmlInit(), "nvmlInit");
 
     nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
 
-    nvmlChkError(nvmlDeviceGetHandleByIndex(1, &device), "GetHandle");
     
     //get graphics clock info
-   nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
+    nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
 
     for(int i = 0; i < memClockCount; i++)
     {
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
     }
 
-  // Main thread for the server
-  // Spawn a new thread for each request
-  po::variables_map vm = parse_opts(argc, argv);
-  debug = vm["debug"].as<bool>();
-  gpu = vm["gpu"].as<bool>();
-  Caffe::set_phase(Caffe::TEST);
-  if (vm["gpu"].as<bool>())
-  {
-    Caffe::set_mode(Caffe::GPU);
-    Caffe::SetDevice(1);
-  }
-  else
-    Caffe::set_mode(Caffe::CPU);
+    // Main thread for the server
+    // Spawn a new thread for each request
+    po::variables_map vm = parse_opts(argc, argv);
+    debug = vm["debug"].as<bool>();
+    gpu = vm["gpu"].as<int>();
+    Caffe::set_phase(Caffe::TEST);
+    if (gpu != -1)
+    {
+        Caffe::set_mode(Caffe::GPU);
+        Caffe::SetDevice(gpu);
+    }
+    else
+        Caffe::set_mode(Caffe::CPU);
+
+
+    nvmlChkError(nvmlDeviceGetHandleByIndex(gpu, &device), "GetHandle");
 
   caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>());
   int fState = vm["clock"].as<int>();

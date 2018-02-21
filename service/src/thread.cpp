@@ -73,7 +73,7 @@ void * GPU_handler(void * args)
             pthread_cond_wait(&GPU_handle_cond,&queue_mutex);
 
         //get data from queue
-        Request current_req = GPU_queue.front();
+        struct Request current_req = GPU_queue.front();
         GPU_queue.pop_front();
         pthread_mutex_unlock(&queue_mutex);
         clock_gettime(CLOCK_MONOTONIC,&tEnd);
@@ -90,6 +90,10 @@ void * GPU_handler(void * args)
         reshapeTime = (tEnd.tv_sec - tStart.tv_sec) * 1000000ul;
         reshapeTime += (tEnd.tv_nsec - tStart.tv_nsec) / 1000ul;
 
+        for(int i = 0; i < 25;i++)
+            printf("%f,",current_req.in[i]);
+        printf("\n");
+        
         //Send to GPU
         clock_gettime(CLOCK_MONOTONIC,&tStart);
         float loss;
@@ -106,7 +110,8 @@ void * GPU_handler(void * args)
         else
             memcpy(current_req.out, out_blobs[0]->cpu_data(), current_req.out_elts * sizeof(float));
 
-       SOCKET_send(current_req.socknum, (char*)current_req.out, current_req.out_elts * sizeof(float), debug); 
+       SOCKET_send(current_req.socknum, (char*)current_req.out, current_req.out_elts * sizeof(float), debug);
+       printf("%f,%f,%f\n",current_req.out[0],current_req.out[0],current_req.out[0]);
     }
 }
 
@@ -137,12 +142,13 @@ void* request_handler(void* sock)
     // 3. Client sends data
     
     struct timespec time;
+    int rcvd;
     while (1) 
     {
         struct Request req;
         //Receive Type of request
-        SOCKET_receive(socknum, (char*)&req.req_name, MAX_REQ_SIZE, debug);
-
+        rcvd = SOCKET_receive(socknum, (char*)&req.req_name, MAX_REQ_SIZE, debug);
+        if (rcvd == 0) break;  // Client closed the socket
         //check if valid request type
         map<string, Net<float>*>::iterator it = nets.find(req.req_name);
         if (it == nets.end())
@@ -150,8 +156,8 @@ void* request_handler(void* sock)
             LOG(ERROR) << "Task " << req.req_name << " not found.";
             return (void*)1;
         }
-        else
-            LOG(INFO) << "Task " << req.req_name << " forward pass.";
+       // else
+        //    LOG(INFO) << "Task " << req.req_name << " forward pass.";
         
         req.socknum = socknum;
         //Receive the input data length (in float)
@@ -169,27 +175,29 @@ void* request_handler(void* sock)
         req.in = (float*)malloc(in_elts * sizeof(float));
         req.out_elts = out_elts;
         req.out = (float*)malloc(out_elts * sizeof(float));
-
         //Recieve Data
-        int rcvd =
+        rcvd =
             SOCKET_receive(socknum, (char*)req.in, in_elts * sizeof(float), debug);
         if (rcvd == 0) break;  // Client closed the socket
-        clock_gettime(CLOCK_MONOTONIC,&time);
-        req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul)) - START_TIME;
 
+        for(int i = 0; i < 25;i++)
+            printf("%f,",req.in[i]);
+        printf("\n");
+
+
+        clock_gettime(CLOCK_MONOTONIC,&time);
+
+        req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul)) - START_TIME;
         //Add to queue
         pthread_mutex_lock(&queue_mutex);
         GPU_queue.push_back(req);
+        pthread_cond_signal(&GPU_handle_cond);
         pthread_mutex_unlock(&queue_mutex);
 
-        free(req.in);
-        free(req.out);
-       //SOCKET_send(socknum, (char*)out, out_elts * sizeof(float), debug);
     }
 
     // Exit the thread
     LOG(INFO) << "Socket closed by the client.";
-   // pthread_detach(pthread_self());
     return (void*)0;
 }
 

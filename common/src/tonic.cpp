@@ -46,7 +46,6 @@ void calculateShape(Net<float> *net, int input_size, int &in_count, int &out_cou
   int w_in = net->input_blobs()[0]->width();
   int h_in = net->input_blobs()[0]->height();
 
-  int n_out = net->output_blobs()[0]->num();
   int c_out = net->output_blobs()[0]->channels();
   int w_out = net->output_blobs()[0]->width();
   int h_out = net->output_blobs()[0]->height();
