@@ -7,7 +7,7 @@ CXX_FLAGS  = -O3 \
 						 -w \
 						 -fpermissive \
 						 -I$(COMMON)/include \
-						 -I$(CAFFE)/include \
+						 -I../$(CAFFE)/include \
 						 -I$(CUDA)/include
 
 ifeq ($(CPU_ONLY), 1)
@@ -22,7 +22,7 @@ LINK_FLAGS = $(LIBRARY_DIRS) \
 						 -lglog \
 						 -lrt \
 						 -lpthread \
-						 $(CAFFE)/lib/libcaffe.so
+						 ../$(CAFFE)/lib/libcaffe.so
 
 SRC=src
 

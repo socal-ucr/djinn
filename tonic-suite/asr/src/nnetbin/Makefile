@@ -7,8 +7,9 @@ EXTRA_CXXFLAGS = -Wno-sign-compare \
 								 -O3 \
 								 -fpermissive \
 								 -I$(COMMON)/include \
-								 -I$(CAFFE)/include \
-								 -I$(CUDA)/include 
+								 -I../../../$(CAFFE)/include \
+								 -I$(CUDA)/include \
+								 -I/usr/include/hdf5/serial/ 
 
 ifeq ($(CPU_ONLY), 1)
 	EXTRA_CXXFLAGS   += -DCPU_ONLY
@@ -16,9 +17,9 @@ endif
 
 include ../kaldi.mk
 
-LDFLAGS += $(CUDA_LDFLAGS)
+LDFLAGS += $(CUDA_LDFLAGS) -L/usr/lib/x86_64-linux-gnu/hdf5/serial/
 LDLIBS += $(CUDA_LDLIBS) $(COMMON)/libtonic.a \
-					$(CAFFE)/lib/libcaffe.so \
+					../../../$(CAFFE)/lib/libcaffe.so \
 					-lglog
 
 

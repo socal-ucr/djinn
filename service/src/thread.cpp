@@ -188,8 +188,6 @@ void* request_handler(void* sock)
             LOG(ERROR) << "Task " << req.req_name << " not found.";
             return (void*)1;
         }
-       // else
-            LOG(INFO) << "Task " << req.req_name << " forward pass." << sizeof(unsigned long);
         
         req.socknum = socknum;
         //Receive the input data length (in float)
