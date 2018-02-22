@@ -90,10 +90,6 @@ void * GPU_handler(void * args)
         reshapeTime = (tEnd.tv_sec - tStart.tv_sec) * 1000000ul;
         reshapeTime += (tEnd.tv_nsec - tStart.tv_nsec) / 1000ul;
 
-        for(int i = 0; i < 25;i++)
-            printf("%f,",current_req.in[i]);
-        printf("\n");
-        
         //Send to GPU
         clock_gettime(CLOCK_MONOTONIC,&tStart);
         float loss;
@@ -111,7 +107,6 @@ void * GPU_handler(void * args)
             memcpy(current_req.out, out_blobs[0]->cpu_data(), current_req.out_elts * sizeof(float));
 
        SOCKET_send(current_req.socknum, (char*)current_req.out, current_req.out_elts * sizeof(float), debug);
-       printf("%f,%f,%f\n",current_req.out[0],current_req.out[0],current_req.out[0]);
     }
 }
 
@@ -180,14 +175,7 @@ void* request_handler(void* sock)
             SOCKET_receive(socknum, (char*)req.in, in_elts * sizeof(float), debug);
         if (rcvd == 0) break;  // Client closed the socket
 
-        for(int i = 0; i < 25;i++)
-            printf("%f,",req.in[i]);
-        printf("\n");
-
-
         clock_gettime(CLOCK_MONOTONIC,&time);
-       // LOG(INFO) << "Writing to socket.";
-       SOCKET_send(socknum, (char*)out, out_elts * sizeof(float), debug);
 
         req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul)) - START_TIME;
         //Add to queue

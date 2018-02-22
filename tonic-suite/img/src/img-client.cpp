@@ -47,9 +47,6 @@ int socketfd = -1;
 void* sender_thread(void *args)
 {
 
-    for (int i = 0; i < 25;i++)
-        printf("%f,",((double*)app.pl.data)[i]);
-    printf("\n");
     socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
     printf("Start Thread:%d\n",socketfd);
     for(unsigned int i=0; i < total_requests; i++)
@@ -62,27 +59,6 @@ void* sender_thread(void *args)
         // send image(s)
         SOCKET_send(socketfd, (char*)app.pl.data,
                 app.pl.num * app.pl.size * sizeof(float), 0);
-
-        SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float),0);
-        gettimeofday(&t_end, NULL);
-
-
-        for(int i = 0; i < 6; i++)
-            printf("%f,",((float*)preds)[i]);
-        printf("\n");
-
-        elapsed_time = (t_end.tv_sec - t_start.tv_sec) * 1000.0;
-        elapsed_time += (t_end.tv_usec - t_start.tv_usec) / 1000.0;
-
-        RTTimes[RTTindex] = elapsed_time;
-        RTTindex++;
-
-        double wait_time = 0; 
-        for(int j=0;j < NUM_CLIENTS && i+j < total_requests;j++)
-            wait_time += distribution[i+j];
-
-        gettimeofday(&t_end, NULL);
->>>>>>> Chow: Final Integration of cublas 1.1: working
 
         usleep(distribution[i]);
     }

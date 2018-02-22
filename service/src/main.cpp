@@ -253,6 +253,9 @@ int main(int argc, char* argv[]) {
     nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
 
     
+    po::variables_map vm = parse_opts(argc, argv);
+    gpu = vm["gpu"].as<int>();
+    nvmlChkError(nvmlDeviceGetHandleByIndex(gpu, &device), "GetHandle");
     //get graphics clock info
     nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
 
@@ -263,9 +266,7 @@ int main(int argc, char* argv[]) {
 
     // Main thread for the server
     // Spawn a new thread for each request
-    po::variables_map vm = parse_opts(argc, argv);
     debug = vm["debug"].as<bool>();
-    gpu = vm["gpu"].as<int>();
     Caffe::set_phase(Caffe::TEST);
     if (gpu != -1)
     {
@@ -276,7 +277,6 @@ int main(int argc, char* argv[]) {
         Caffe::set_mode(Caffe::CPU);
 
 
-    nvmlChkError(nvmlDeviceGetHandleByIndex(gpu, &device), "GetHandle");
 
   caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>());
   int fState = vm["clock"].as<int>();
