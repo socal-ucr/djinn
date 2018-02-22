@@ -65,7 +65,6 @@ unsigned int RPS[NUM_RPS]=
  61, 62, 63, 64};
 unsigned int rps_index = 0;
 unsigned int fs_index = 0;
-unsigned int PTable [] = {16,16,16,16,16,16,16,16,14,13,13,13,11,11,10,10,10,10,10,8,7,7,6,5,5,5,5,2};
 FILE * pFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_mutex_t GPU_mutex= PTHREAD_MUTEX_INITIALIZER;
@@ -115,7 +114,7 @@ void nvmlChkError(nvmlReturn_t result, const char * error)
         result = nvmlShutdown();
         if (NVML_SUCCESS != result)
             printf("Failed to shutdown NVML: %s\n", nvmlErrorString(result));
-
+ 
         exit(1);
     } 
 }
@@ -137,10 +136,7 @@ void *record_power(void* args)
 
     vector<int> freqArray;
     vector<int> powerArray;
-    unsigned long n=1;
-    int requests = 0;
-    int second;
-    int previous = 0;
+    int n=1;
     while(1)
     {
         if(kill_power_t)
@@ -181,11 +177,12 @@ void *record_power(void* args)
         //SM FREQUENCY
         nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
         freqArray.push_back((int)clock);
-        clock_avg = clock_avg+(((int)clock-clock_avg)/n);
+        clock_avg = clock_avg+(((int)clock-clock_avg)/++n);
         if (clock_peak<(int)clock) clock_peak=(int)clock;
       
-
+        
         usleep(1000);
+        
     }
     
     FILE *power_stats = fopen("power_stats.out", "a");

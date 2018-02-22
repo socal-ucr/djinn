@@ -31,7 +31,6 @@ using caffe::shared_ptr;
 using caffe::Timer;
 using caffe::vector;
 
-#define NUM_QUEUES 1
 using namespace std;
 
 pthread_t request_thread_init(int sock);
