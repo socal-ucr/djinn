@@ -186,6 +186,8 @@ void* request_handler(void* sock)
 
 
         clock_gettime(CLOCK_MONOTONIC,&time);
+       // LOG(INFO) << "Writing to socket.";
+       SOCKET_send(socknum, (char*)out, out_elts * sizeof(float), debug);
 
         req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul)) - START_TIME;
         //Add to queue

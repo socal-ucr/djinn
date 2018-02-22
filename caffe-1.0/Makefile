@@ -614,3 +614,5 @@ $(DISTRIBUTE_DIR): all py $(HXX_SRCS) | $(DISTRIBUTE_SUBDIRS)
 	cp $(STATIC_NAME) $(DISTRIBUTE_DIR)/lib
 	# add python - it's not the standard way, indeed...
 	cp -r python $(DISTRIBUTE_DIR)/python
+	cp -r cublas-1.1/cublas11.h $(DISTRIBUTE_DIR)/include/.
+	cp -r cublas-1.1/cuComplex11.h $(DISTRIBUTE_DIR)/include/.
