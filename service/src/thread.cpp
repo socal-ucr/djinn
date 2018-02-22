@@ -42,29 +42,35 @@ struct Request
     int out_elts;
     float* in;
     float* out;
+    unsigned int queueTime;
+    unsigned int reshapeTime;
+    unsigned int GPUTime;
 };
 
 map<pthread_t,int> condMap;
 extern map<string, Net<float>*> nets;
 extern bool debug;
-extern FILE * pFile;
+extern FILE * logFile;
 extern pthread_rwlock_t output_rwlock;
 
 extern int power_avg, power_peak;
 extern int clock_avg, clock_peak;
-extern bool reset_stats;
 
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t GPU_handle_cond = PTHREAD_COND_INITIALIZER;
 std::list<Request> GPU_queue;
+
+pthread_mutex_t response_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t response_handle_cond = PTHREAD_COND_INITIALIZER;
+std::list<Request> response_queue;
+
 extern unsigned long START_TIME;
 
-//unsigned long SERVICE_fwd(float* in, int in_size, float* out, int out_size,
-//                Net<float>* net,unsigned long &qtime)
+
 void * GPU_handler(void * args)
 {
+
     struct timespec tStart, tEnd;
-    unsigned long queueTime, gpuTime,reshapeTime;
     while(1)
     {
         pthread_mutex_lock(&queue_mutex);
@@ -77,7 +83,7 @@ void * GPU_handler(void * args)
         GPU_queue.pop_front();
         pthread_mutex_unlock(&queue_mutex);
         clock_gettime(CLOCK_MONOTONIC,&tEnd);
-        queueTime = ((tEnd.tv_sec * 1000000ul) + tEnd.tv_nsec / 1000ul) - current_req.time;
+        current_req.queueTime = ((tEnd.tv_sec * 1000000ul) + tEnd.tv_nsec / 1000ul) - current_req.time;
 
         //reshape net for current input
         clock_gettime(CLOCK_MONOTONIC,&tStart);
@@ -87,8 +93,8 @@ void * GPU_handler(void * args)
         vector<Blob<float>*> in_blobs = net->input_blobs();
         clock_gettime(CLOCK_MONOTONIC,&tEnd);
 
-        reshapeTime = (tEnd.tv_sec - tStart.tv_sec) * 1000000ul;
-        reshapeTime += (tEnd.tv_nsec - tStart.tv_nsec) / 1000ul;
+        current_req.reshapeTime = (tEnd.tv_sec - tStart.tv_sec) * 1000000ul;
+        current_req.reshapeTime += (tEnd.tv_nsec - tStart.tv_nsec) / 1000ul;
 
         //Send to GPU
         clock_gettime(CLOCK_MONOTONIC,&tStart);
@@ -98,15 +104,46 @@ void * GPU_handler(void * args)
         memcpy(current_req.out, out_blobs[0]->cpu_data(), sizeof(float));
 
         clock_gettime(CLOCK_MONOTONIC,&tEnd);
-        gpuTime = (tEnd.tv_sec - tStart.tv_sec) * 1000000ul;
-        gpuTime += (tEnd.tv_nsec - tStart.tv_nsec) / 1000ul;
+        current_req.GPUTime = (tEnd.tv_sec - tStart.tv_sec) * 1000000ul;
+        current_req.GPUTime += (tEnd.tv_nsec - tStart.tv_nsec) / 1000ul;
 
         if (current_req.out_elts != out_blobs[0]->count())
             LOG(FATAL) << "out_size =! out_blobs[0]->count())";
         else
             memcpy(current_req.out, out_blobs[0]->cpu_data(), current_req.out_elts * sizeof(float));
 
-       SOCKET_send(current_req.socknum, (char*)current_req.out, current_req.out_elts * sizeof(float), debug);
+        //Add to queue
+        pthread_mutex_lock(&response_queue_mutex);
+        response_queue.push_back(current_req);
+        pthread_cond_signal(&response_handle_cond);
+        pthread_mutex_unlock(&response_queue_mutex);
+    }
+}
+
+void * response_handler(void * args)
+{
+    while(1)
+    {
+        pthread_mutex_lock(&response_queue_mutex);
+        while(response_queue.empty())
+            pthread_cond_wait(&response_handle_cond,&response_queue_mutex);
+
+        //get data from queue
+        struct Request current_req = response_queue.front();
+        response_queue.pop_front();
+        pthread_mutex_unlock(&response_queue_mutex);
+
+        SOCKET_send(current_req.socknum, (char*)current_req.out, current_req.out_elts * sizeof(float), debug);
+
+        std::string output = std::to_string(current_req.time-START_TIME) + "," +
+                             current_req.req_name + "," +
+                             std::to_string(current_req.queueTime) + "," +
+                             std::to_string(current_req.reshapeTime) + "," +
+                             std::to_string(current_req.GPUTime) + "\n";
+        
+        fwrite(output.c_str(),sizeof(char),output.length(),logFile);
+        fflush(logFile);
+
     }
 }
 
@@ -152,7 +189,7 @@ void* request_handler(void* sock)
             return (void*)1;
         }
        // else
-        //    LOG(INFO) << "Task " << req.req_name << " forward pass.";
+            LOG(INFO) << "Task " << req.req_name << " forward pass." << sizeof(unsigned long);
         
         req.socknum = socknum;
         //Receive the input data length (in float)
@@ -177,7 +214,7 @@ void* request_handler(void* sock)
 
         clock_gettime(CLOCK_MONOTONIC,&time);
 
-        req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul)) - START_TIME;
+        req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul));
         //Add to queue
         pthread_mutex_lock(&queue_mutex);
         GPU_queue.push_back(req);
@@ -189,9 +226,4 @@ void* request_handler(void* sock)
     // Exit the thread
     LOG(INFO) << "Socket closed by the client.";
     return (void*)0;
-}
-
-void * send_handler()
-{
-
 }

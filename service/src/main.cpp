@@ -45,7 +45,6 @@ namespace po = boost::program_options;
 map<string, Net<float>*> nets;
 int power_avg=0, power_peak=0;
 int clock_avg=0, clock_peak=0;
-bool reset_stats = false;
 bool debug;
 int gpu;
 //TITAN X
@@ -65,7 +64,7 @@ unsigned int RPS[NUM_RPS]=
  61, 62, 63, 64};
 unsigned int rps_index = 0;
 unsigned int fs_index = 0;
-FILE * pFile;
+FILE * logFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_mutex_t GPU_mutex= PTHREAD_MUTEX_INITIALIZER;
 
@@ -124,65 +123,23 @@ void *record_power(void* args)
 {
     nvmlDevice_t* device = (nvmlDevice_t*)args;
 
-    //POWER
     unsigned int power;
-    nvmlDeviceGetPowerUsage(*device, &power);
-    power_avg = (int)power;
-
-    //SM FREQUENCY
     unsigned int clock;
-    nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
-    clock_avg = (int)clock;
 
     vector<int> freqArray;
     vector<int> powerArray;
-    int n=1;
-    while(1)
+    unsigned long n=1;
+    while(!kill_power_t)
     {
-        if(kill_power_t)
-            break;
-        if(reset_stats)
-        {
-            //Frequency
-            pthread_rwlock_wrlock(&output_rwlock);
-            fclose (pFile);
-            fs_index++;
-            if(fs_index >= NUM_F_STATES)
-                raise(2);
-            std::string outfileName;
-            outfileName = std::to_string(fs_index) + ".out";
-            pFile = fopen(outfileName.c_str(),"w");
-            pthread_rwlock_unlock(&output_rwlock);
-
-
-            //nvmlChkError(nvmlDeviceSetApplicationsClocks(*device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fs_index]]),"SetClocks");
-            //POWER
-            nvmlDeviceGetPowerUsage(*device, &power);
-            power_avg=power;
-            power_peak=power_avg;
-
-            //SM FREQUENCY
-            nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
-            clock_avg=clock;
-            clock_peak=clock_avg;
-
-            reset_stats = false;
-        }
         //POWER
         nvmlDeviceGetPowerUsage(*device, &power);
         powerArray.push_back((int)power);
-        power_avg = power_avg+(((int)power-power_avg)/++n);
-        if (power_peak<(int)power) power_peak=(int)power;
 
         //SM FREQUENCY
         nvmlDeviceGetClockInfo(*device,NVML_CLOCK_SM,&clock);
         freqArray.push_back((int)clock);
-        clock_avg = clock_avg+(((int)clock-clock_avg)/++n);
-        if (clock_peak<(int)clock) clock_peak=(int)clock;
-      
-        
+        n++;
         usleep(1000);
-        
     }
     
     FILE *power_stats = fopen("power_stats.out", "a");
@@ -195,6 +152,8 @@ void *record_power(void* args)
         fwrite(clock_temp.c_str(),sizeof(char), clock_temp.length(),power_stats);
         fwrite("\n",sizeof(char), 1,power_stats);
     }
+
+    fwrite("\n---\n", sizeof(char), 5, power_stats);
     fflush(power_stats);
     fclose(power_stats);
     
@@ -307,12 +266,16 @@ int main(int argc, char* argv[]) {
     //Create log file
     std::string outfileName;
     outfileName = vm["outfile"].as<string>() + ".out";
-    pFile = fopen(outfileName.c_str(),"w");
-    if(pFile == NULL)
+    logFile = fopen(outfileName.c_str(),"w");
+    if(logFile == NULL)
     {
         LOG(INFO) << "Could not create out file";
 	return 0;
     }
+    std::string header = "Time,Name,Queue,Reshape,GPU\n";
+    
+    fwrite(header.c_str(),sizeof(char),header.length(),logFile);
+    fflush(logFile);
     
     pthread_t t_rp;
     // Main Loop
@@ -323,11 +286,20 @@ int main(int argc, char* argv[]) {
     START_TIME = (time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul);
 
     std::vector<pthread_t> threads;
+
     pthread_t GPU_thread;
     int error = pthread_create(&GPU_thread, NULL, GPU_handler, NULL);
     if(error != 0)
     {
         LOG(ERROR) << "Failed to create a GPU handler thread.\nERROR:" << error << "\n";
+        exit(1);
+    }
+    
+    pthread_t response_thread;
+    error = pthread_create(&response_thread, NULL, response_handler, NULL);
+    if(error != 0)
+    {
+        LOG(ERROR) << "Failed to create a response handler thread.\nERROR:" << error << "\n";
         exit(1);
     }
     while (1) 
@@ -363,36 +335,14 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    pthread_cancel(GPU_thread);
+    pthread_cancel(response_thread);
     if(POWER)
     {
-        printf("PRINTING_POWER\n");
-        FILE *power_stats = fopen("power_stats.out", "a");
-        if (power_stats == NULL)
-        {
-            LOG(INFO) << "Cannot create stats file" << endl;
-            raise(2);
-        }
-        std::string power_temp_avg   = std::to_string(power_avg/1000);
-        std::string power_temp_peak  = std::to_string(power_peak/1000);
-        std::string clock_temp_avg   = std::to_string(clock_avg);
-        std::string clock_temp_peak  = std::to_string(clock_peak);
-        
-        //POWER
-        fwrite(power_temp_avg.c_str(), sizeof(char), power_temp_avg.length(), power_stats);
-        fwrite(",", sizeof(char), 1, power_stats);
-        fwrite(power_temp_peak.c_str(), sizeof(char), power_temp_peak.length(), power_stats);
-        fwrite(",", sizeof(char), 1, power_stats);
-        //SM FREQUENCY
-        fwrite(clock_temp_avg.c_str(), sizeof(char), clock_temp_avg.length(), power_stats);
-        fwrite(",", sizeof(char), 1, power_stats);
-        fwrite(clock_temp_peak.c_str(), sizeof(char), clock_temp_peak.length(), power_stats);
-        fwrite("\n---\n", sizeof(char), 5, power_stats);
-        fflush(power_stats);
-        fclose(power_stats);
         kill_power_t = true;
         pthread_join(t_rp,NULL);
     }
-
+    fclose(logFile);
     nvmlShutdown();
     return 0;
 }
