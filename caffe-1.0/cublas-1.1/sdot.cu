@@ -30,7 +30,7 @@
  * source code with only those rights set forth herein.
  */
 
-/* This file contains the implementation of the BLAS-1 function ddot */
+/* This file contains the implementation of the BLAS-1 function sdot */
 
 #include <stdlib.h>
 #include <assert.h>
@@ -41,15 +41,15 @@
 #include "cublas11.h"   /* CUBLAS public header file  */
 #include "cublasP.h"  /* CUBLAS private header file */
 
-texture<double> texX;
-texture<double> texY;
+texture<float> texX;
+texture<float> texY;
 
-__global__ void ddot_gld_main (struct cublasDdotParams parms);
-__global__ void ddot_tex_main (struct cublasDdotParams parms);
+__global__ void sdot_gld_main (struct cublasSdotParams parms);
+__global__ void sdot_tex_main (struct cublasSdotParams parms);
 
 /*
- * double 
- * ddot (int n, const double *x, int incx, const double *y, int incy)
+ * float 
+ * sdot (int n, const float *x, int incx, const float *y, int incy)
  *
  * computes the dot product of two single precision vectors. It returns the 
  * dot product of the single precision vectors x and y if successful, and
@@ -69,7 +69,7 @@ __global__ void ddot_tex_main (struct cublasDdotParams parms);
  * ------
  * returns single precision dot product (zero if n <= 0)
  *
- * Reference: http://www.netlib.org/blas/ddot.f
+ * Reference: http://www.netlib.org/blas/sdot.f
  *
  * Error status for this function can be retrieved via cublasGetError().
  *
@@ -78,18 +78,18 @@ __global__ void ddot_tex_main (struct cublasDdotParams parms);
  * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has nor been initialized
  * CUBLAS_STATUS_EXECUTION_FAILED if function failed to execute on GPU
  */
-__host__ double CUBLASAPI cublasDdot (int n, const double *x, int incx,
-                                     const double *y, int incy)
+__host__ float CUBLASAPI cublasSdot (int n, const float *x, int incx,
+                                     const float *y, int incy)
 {
     struct cublasContext *ctx = CUBLAS_GET_CTX();
-    struct cublasDdotParams params;
+    struct cublasSdotParams params;
     cudaError_t cudaStat;
     cublasStatus status;
-    double *devPtrT;
+    float *devPtrT;
     int nbrCtas;
     int threadsPerCta;
-    double *tx;
-    double dot = 0.0f;
+    float *tx;
+    float dot = 0.0f;
     int i;
     int sizeX = n * (imax (1, abs(incx)));
     int sizeY = n * (imax (1, abs(incy)));
@@ -102,12 +102,12 @@ __host__ double CUBLASAPI cublasDdot (int n, const double *x, int incx,
         return dot;
     }
     
-    if (n < CUBLAS_DDOT_CTAS) {
+    if (n < CUBLAS_SDOT_CTAS) {
          nbrCtas = n;
-         threadsPerCta = CUBLAS_DDOT_THREAD_COUNT;
+         threadsPerCta = CUBLAS_SDOT_THREAD_COUNT;
     } else {
-         nbrCtas = CUBLAS_DDOT_CTAS;
-         threadsPerCta = CUBLAS_DDOT_THREAD_COUNT;
+         nbrCtas = CUBLAS_SDOT_CTAS;
+         threadsPerCta = CUBLAS_SDOT_THREAD_COUNT;
     }
 
     /* early out if nothing to do */
@@ -153,7 +153,7 @@ __host__ double CUBLASAPI cublasDdot (int n, const double *x, int incx,
     }
 
     /* allocate small buffer to retrieve the per-CTA results */
-    tx = (double *) calloc (nbrCtas, sizeof(tx[0]));
+    tx = (float *) calloc (nbrCtas, sizeof(tx[0]));
     if (!tx) {
         cublasFree (devPtrT);
         cublasSetError (ctx, CUBLAS_STATUS_ALLOC_FAILED);
@@ -172,9 +172,9 @@ __host__ double CUBLASAPI cublasDdot (int n, const double *x, int incx,
 
     cudaStat = cudaGetLastError(); /* clear error status */
     if (useTexture) {
-        ddot_tex_main<<<nbrCtas,threadsPerCta>>>(params);
+        sdot_tex_main<<<nbrCtas,threadsPerCta>>>(params);
     } else {
-        ddot_gld_main<<<nbrCtas,threadsPerCta>>>(params);
+        sdot_gld_main<<<nbrCtas,threadsPerCta>>>(params);
     }
     cudaStat = cudaGetLastError(); /* check for launch error */
 
@@ -216,18 +216,18 @@ __host__ double CUBLASAPI cublasDdot (int n, const double *x, int incx,
     return dot;
 }
 
-__shared__ double partialSum[CUBLAS_DDOT_THREAD_COUNT];        
+__shared__ float partialSum[CUBLAS_SDOT_THREAD_COUNT];        
 
-__global__ void ddot_gld_main (struct cublasDdotParams parms) 
+__global__ void sdot_gld_main (struct cublasSdotParams parms) 
 {
 #undef  USE_TEX
 #define USE_TEX 0
-#include "ddot.h"
+#include "sdot.h"
 }
 
-__global__ void ddot_tex_main (struct cublasDdotParams parms) 
+__global__ void sdot_tex_main (struct cublasSdotParams parms) 
 {
 #undef  USE_TEX
 #define USE_TEX 1
-#include "ddot.h"
+#include "sdot.h"
 }

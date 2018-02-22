@@ -2163,6 +2163,302 @@ void CUBLASAPI cublasChpr2 (char uplo, int n, cuComplex alpha,
                             const cuComplex *x, int incx, const cuComplex *y,
                             int incy, cuComplex *AP);
 
+/* ---------------- CUBLAS double precision BLAS3 functions ---------------- */
+
+/*
+ * void 
+ * cublasSgemm (char transa, char transb, int m, int n, int k, float alpha, 
+ *              const float *A, int lda, const float *B, int ldb, float beta, 
+ *              float *C, int ldc)
+ *
+ * computes the product of matrix A and matrix B, multiplies the result 
+ * by a scalar alpha, and adds the sum to the product of matrix C and
+ * scalar beta. sgemm() performs one of the matrix-matrix operations:
+ *
+ *     C = alpha * op(A) * op(B) + beta * C,
+ *
+ * where op(X) is one of
+ *
+ *     op(X) = X   or   op(X) = transpose(X)
+ *
+ * alpha and beta are single precision scalars, and A, B and C are 
+ * matrices consisting of single precision elements, with op(A) an m x k 
+ * matrix, op(B) a k x n matrix, and C an m x n matrix. Matrices A, B, 
+ * and C are stored in column major format, and lda, ldb, and ldc are
+ * the leading dimensions of the two-dimensional arrays containing A, 
+ * B, and C.
+ *
+ * Input
+ * -----
+ * transa specifies op(A). If transa = 'n' or 'N', op(A) = A. If 
+ *        transa = 't', 'T', 'c', or 'C', op(A) = transpose(A)
+ * transb specifies op(B). If transb = 'n' or 'N', op(B) = B. If 
+ *        transb = 't', 'T', 'c', or 'C', op(B) = transpose(B)
+ * m      number of rows of matrix op(A) and rows of matrix C
+ * n      number of columns of matrix op(B) and number of columns of C
+ * k      number of columns of matrix op(A) and number of rows of op(B) 
+ * alpha  single precision scalar multiplier applied to op(A)op(B)
+ * A      single precision array of dimensions (lda, k) if transa = 
+ *        'n' or 'N'), and of dimensions (lda, m) otherwise. When transa =
+ *        'N' or 'n' then lda must be at least  max( 1, m ), otherwise lda
+ *        must be at least max(1, k).
+ * lda    leading dimension of two-dimensional array used to store matrix A
+ * B      single precision array of dimensions  (ldb, n) if transb =
+ *        'n' or 'N'), and of dimensions (ldb, k) otherwise. When transb =
+ *        'N' or 'n' then ldb must be at least  max (1, k), otherwise ldb
+ *        must be at least max (1, n).
+ * ldb    leading dimension of two-dimensional array used to store matrix B
+ * beta   single precision scalar multiplier applied to C. If 0, C does
+ *        not have to be a valid input
+ * C      single precision array of dimensions (ldc, n). ldc must be at 
+ *        least max (1, m).
+ * ldc    leading dimension of two-dimensional array used to store matrix C
+ *
+ * Output
+ * ------
+ * C      updated based on C = alpha * op(A)*op(B) + beta * C
+ *
+ * Reference: http://www.netlib.org/blas/sgemm.f
+ *
+ * Error status for this function can be retrieved via cublasGetError().
+ *
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has not been initialized
+ * CUBLAS_STATUS_INVALID_VALUE    if any of m, n, or k are < 0
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to launch on GPU
+ */
+void CUBLASAPI cublasDgemm (char transa, char transb, int m, int n, int k, 
+                            double alpha, const double *A, int lda, 
+                            const double *B, int ldb, double beta, double *C, 
+                            int ldc);
+/*
+ * cublasSgemv (char trans, int m, int n, float alpha, const float *A, int lda,
+ *              const float *x, int incx, float beta, float *y, int incy)
+ *
+ * performs one of the matrix-vector operations
+ *
+ *    y = alpha * op(A) * x + beta * y,
+ *
+ * where op(A) is one of
+ *
+ *    op(A) = A   or   op(A) = transpose(A)
+ *
+ * where alpha and beta are single precision scalars, x and y are single 
+ * precision vectors, and A is an m x n matrix consisting of single precision
+ * elements. Matrix A is stored in column major format, and lda is the leading
+ * dimension of the two-dimensional array in which A is stored.
+ *
+ * Input
+ * -----
+ * trans  specifies op(A). If transa = 'n' or 'N', op(A) = A. If trans =
+ *        trans = 't', 'T', 'c', or 'C', op(A) = transpose(A)
+ * m      specifies the number of rows of the matrix A. m must be at least 
+ *        zero.
+ * n      specifies the number of columns of the matrix A. n must be at least 
+ *        zero.
+ * alpha  single precision scalar multiplier applied to op(A).
+ * A      single precision array of dimensions (lda, n) if trans = 'n' or 
+ *        'N'), and of dimensions (lda, m) otherwise. lda must be at least 
+ *        max(1, m) and at least max(1, n) otherwise.
+ * lda    leading dimension of two-dimensional array used to store matrix A
+ * x      single precision array of length at least (1 + (n - 1) * abs(incx))
+ *        when trans = 'N' or 'n' and at least (1 + (m - 1) * abs(incx)) 
+ *        otherwise.
+ * incx   specifies the storage spacing between elements of x. incx must not 
+ *        be zero.
+ * beta   single precision scalar multiplier applied to vector y. If beta 
+ *        is zero, y is not read.
+ * y      single precision array of length at least (1 + (m - 1) * abs(incy))
+ *        when trans = 'N' or 'n' and at least (1 + (n - 1) * abs(incy)) 
+ *        otherwise.
+ * incy   specifies the storage spacing between elements of x. incx must not
+ *        be zero.
+ *
+ * Output
+ * ------
+ * y      updated according to alpha * op(A) * x + beta * y
+ *
+ * Reference: http://www.netlib.org/blas/sgemv.f
+ *
+ * Error status for this function can be retrieved via cublasGetError().
+ *
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has not been initialized
+ * CUBLAS_STATUS_INVALID_VALUE    if m or n are < 0, or if incx or incy == 0
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to launch on GPU
+ */
+void CUBLASAPI cublasDgemv (char trans, int m, int n, double alpha,
+                            const double *A, int lda, const double *x, int incx,
+                            double beta, double *y, int incy);
+
+
+/*
+ * void
+ * cublasSaxpy (int n, float alpha, const float *x, int incx, float *y, 
+ *              int incy)
+ *
+ * multiplies single precision vector x by single precision scalar alpha 
+ * and adds the result to single precision vector y; that is, it overwrites 
+ * single precision y with single precision alpha * x + y. For i = 0 to n - 1, 
+ * it replaces y[ly + i * incy] with alpha * x[lx + i * incx] + y[ly + i *
+ * incy], where lx = 1 if incx >= 0, else lx = 1 +(1 - n) * incx, and ly is 
+ * defined in a similar way using incy.
+ *
+ * Input
+ * -----
+ * n      number of elements in input vectors
+ * alpha  single precision scalar multiplier
+ * x      single precision vector with n elements
+ * incx   storage spacing between elements of x
+ * y      single precision vector with n elements
+ * incy   storage spacing between elements of y
+ *
+ * Output
+ * ------
+ * y      single precision result (unchanged if n <= 0)
+ *
+ * Reference: http://www.netlib.org/blas/saxpy.f
+ *
+ * Error status for this function can be retrieved via cublasGetError().
+ * 
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has not been initialized
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to launch on GPU
+ */
+void CUBLASAPI cublasDaxpy (int n, double alpha, const double *x, int incx, 
+                            double *y, int incy);
+
+
+/*
+ * void
+ * sscal (int n, float alpha, float *x, int incx)
+ *
+ * replaces single precision vector x with single precision alpha * x. For i 
+ * = 0 to n - 1, it replaces x[ix + i * incx] with alpha * x[ix + i * incx], 
+ * where ix = 1 if incx >= 0, else ix = 1 + (1 - n) * incx.
+ *
+ * Input
+ * -----
+ * n      number of elements in input vectors
+ * alpha  single precision scalar multiplier
+ * x      single precision vector with n elements
+ * incx   storage spacing between elements of x
+ *
+ * Output
+ * ------
+ * x      single precision result (unchanged if n <= 0 or incx <= 0)
+ *
+ * Reference: http://www.netlib.org/blas/sscal.f
+ *
+ * Error status for this function can be retrieved via cublasGetError().
+ * 
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has not been initialized
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to launch on GPU
+ */
+void CUBLASAPI cublasDscal (int n, double alpha, double *x, int incx);
+
+/*
+ * void 
+ * cublasScopy (int n, const float *x, int incx, float *y, int incy)
+ *
+ * copies the single precision vector x to the single precision vector y. For 
+ * i = 0 to n-1, copies x[lx + i * incx] to y[ly + i * incy], where lx = 1 if 
+ * incx >= 0, else lx = 1 + (1 - n) * incx, and ly is defined in a similar 
+ * way using incy.
+ *
+ * Input
+ * -----
+ * n      number of elements in input vectors
+ * x      single precision vector with n elements
+ * incx   storage spacing between elements of x
+ * y      single precision vector with n elements
+ * incy   storage spacing between elements of y
+ *
+ * Output
+ * ------
+ * y      contains single precision vector x
+ *
+ * Reference: http://www.netlib.org/blas/scopy.f
+ *
+ * Error status for this function can be retrieved via cublasGetError(). 
+ *
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has not been initialized
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to launch on GPU
+ */
+void CUBLASAPI cublasDcopy (int n, const double *x, int incx, double *y, 
+                            int incy);
+
+/*
+ * float 
+ * cublasSdot (int n, const float *x, int incx, const float *y, int incy)
+ *
+ * computes the dot product of two single precision vectors. It returns the 
+ * dot product of the single precision vectors x and y if successful, and
+ * 0.0f otherwise. It computes the sum for i = 0 to n - 1 of x[lx + i * 
+ * incx] * y[ly + i * incy], where lx = 1 if incx >= 0, else lx = 1 + (1 - n)
+ * *incx, and ly is defined in a similar way using incy.
+ *
+ * Input
+ * -----
+ * n      number of elements in input vectors
+ * x      single precision vector with n elements
+ * incx   storage spacing between elements of x
+ * y      single precision vector with n elements
+ * incy   storage spacing between elements of y
+ *
+ * Output
+ * ------
+ * returns single precision dot product (zero if n <= 0)
+ *
+ * Reference: http://www.netlib.org/blas/sdot.f
+ *
+ * Error status for this function can be retrieved via cublasGetError().
+ *
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has nor been initialized
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to execute on GPU
+ */
+double CUBLASAPI cublasDdot (int n, const double *x, int incx, const double *y, 
+                            int incy);
+
+/*
+ * float 
+ * cublasSasum (int n, const float *x, int incx)
+ *
+ * computes the sum of the absolute values of the elements of single 
+ * precision vector x; that is, the result is the sum from i = 0 to n - 1 of 
+ * abs(x[1 + i * incx]).
+ * 
+ * Input
+ * -----
+ * n      number of elements in input vector
+ * x      single precision vector with n elements
+ * incx   storage spacing between elements of x
+ *
+ * Output
+ * ------
+ * returns the single precision sum of absolute values
+ * (0 if n <= 0 or incx <= 0, or if an error occurs)
+ *
+ * Reference: http://www.netlib.org/blas/sasum.f
+ *
+ * Error status for this function can be retrieved via cublasGetError(). 
+ *
+ * Error Status
+ * ------------
+ * CUBLAS_STATUS_NOT_INITIALIZED  if CUBLAS library has not been initialized
+ * CUBLAS_STATUS_EXECUTION_FAILED if function failed to launch on GPU
+ */
+double CUBLASAPI cublasDasum (int n, const double *x, int incx);
+
 
 /* ---------------- CUBLAS single precision BLAS3 functions ---------------- */
 

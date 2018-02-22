@@ -41,12 +41,11 @@
 #define fetchx(i)  sx[i]
 #define fetchy(i)  sy[i]
 #endif /* USE_TEX */
-
     unsigned int i, n, tid, totalThreads, ctaStart;
-    double sum = 0.0f;
+    float sum = 0.0f;
 #if (USE_TEX==0)
-    const double *sx;
-    const double *sy;
+    const float *sx;
+    const float *sy;
 #endif
     /* wrapper must ensure that parms.n > 0 */
     tid = threadIdx.x;
@@ -55,8 +54,8 @@
     sx = parms.sx;
     sy = parms.sy;
 #endif
-    totalThreads = gridDim.x * CUBLAS_DDOT_THREAD_COUNT;
-    ctaStart = CUBLAS_DDOT_THREAD_COUNT * blockIdx.x;
+    totalThreads = gridDim.x * CUBLAS_SDOT_THREAD_COUNT;
+    ctaStart = CUBLAS_SDOT_THREAD_COUNT * blockIdx.x;
 
     if ((parms.incx == parms.incy) && (parms.incx > 0)) {
         /* equal, positive, increments */
@@ -81,11 +80,11 @@
     }
     partialSum[tid] = sum;
 
-#if (CUBLAS_DDOT_THREAD_COUNT & (CUBLAS_DDOT_THREAD_COUNT - 1))
-#error code requires CUBLAS_DDOT_THREAD_COUNT to be a power of 2
+#if (CUBLAS_SDOT_THREAD_COUNT & (CUBLAS_SDOT_THREAD_COUNT - 1))
+#error code requires CUBLAS_SDOT_THREAD_COUNT to be a power of 2
 #endif
 
-    for (i = CUBLAS_DDOT_THREAD_COUNT >> 1; i > 0; i >>= 1) {
+    for (i = CUBLAS_SDOT_THREAD_COUNT >> 1; i > 0; i >>= 1) {
         __syncthreads(); 
         if (tid < i) {
             partialSum[tid] += partialSum[tid + i]; 

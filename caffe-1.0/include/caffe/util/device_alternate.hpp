@@ -54,7 +54,7 @@ void classname<Dtype>::funcname##_##gpu(const vector<Blob<Dtype>*>& top, \
     CHECK_EQ(error, cudaSuccess) << " " << cudaGetErrorString(error); \
   } while (0)
 
-#define CUBLAS_CHECK(condition) 
+#define CUBLAS_CHECK(condition) condition
 
 #define CURAND_CHECK(condition) \
   do { \
