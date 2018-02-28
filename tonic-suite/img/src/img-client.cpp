@@ -63,8 +63,7 @@ void* sender_thread(void *args)
         usleep(distribution[i]);
     }
 
-    printf("Close Thread\n");
-    SOCKET_close(socketfd, 0);
+    printf("Close Sender\n");
 
     return NULL;
 }
@@ -85,7 +84,7 @@ void * reciever_thread(void *args)
         }
         printf("\n");
     }
-    printf("RCLOSE\n");
+    printf("Close Reciever\n");
 }
 
 void reset_djinn()
@@ -296,7 +295,7 @@ int main(int argc, char** argv)
         pthread_join(Sender, NULL);
         pthread_join(Reciever, NULL);
 
-        //reset_djinn();
+        SOCKET_close(socketfd, 0);
     }
 
     else

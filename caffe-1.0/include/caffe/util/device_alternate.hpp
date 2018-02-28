@@ -33,7 +33,7 @@ void classname<Dtype>::funcname##_##gpu(const vector<Blob<Dtype>*>& top, \
 #else  // Normal GPU + CPU Caffe.
 
 //#include <cublas_v2.h>
-#include "cublas11.h"
+#include "../cublas-1.1/cublas11.h"
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <curand.h>
