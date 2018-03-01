@@ -41,6 +41,11 @@
 #include "caffe/cublas-1.1/cublas11.h"   /* CUBLAS public header file  */
 #include "caffe/cublas-1.1/cublasP.h"  /* CUBLAS private header file */
 
+
+int cublasMaxTB;
+void setTBLimit(int limit) {cublasMaxTB = limit;}
+int  getTBLimit() {return cublasMaxTB;}
+
 void cublasSetError (struct cublasContext *ctx, cublasStatus error)
 {
     if (ctx) {
@@ -135,7 +140,7 @@ __tlsHookStatus cublasInitCtx (struct cublasContext *ctx, void *_status)
 cublasStatus CUBLASAPI cublasInit (void)
 {
     cublasStatus status = CUBLAS_STATUS_SUCCESS;
-    
+    setTBLimit(-1);   
     return status;
 }
 

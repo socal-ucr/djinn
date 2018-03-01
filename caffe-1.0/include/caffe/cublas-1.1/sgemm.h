@@ -294,12 +294,15 @@ do {                                                 \
 
 
 #if (USE_MIXED_STEPPER == 1)
-    for (i = IMUL(blockIdx.y, TILE_DIM); i < parms.m; i += SUP_TILE_DIM) {
+    unsigned int H_STRIDE = TILE_DIM * gridDim.y;
+    unsigned int W_STRIDE = TILE_DIM * gridDim.x;
+
+    for (i = IMUL(blockIdx.y, TILE_DIM); i < parms.m; i += H_STRIDE) {
         unsigned ii_1 = i + tidLo;
 #undef  ii_2
 #define ii_2 (i + tidHi)  /* could be induction variable if enough registers */
 
-        for (j = IMUL(blockIdx.x, TILE_DIM); j < parms.n; j += SUP_TILE_DIM) {
+        for (j = IMUL(blockIdx.x, TILE_DIM); j < parms.n; j += W_STRIDE) {
 #undef  jj_2
 #if ((TRANSB==0)&&(TRANSA==1))
             unsigned jj_2 = j + tidHi;

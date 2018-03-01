@@ -116,7 +116,7 @@ __host__ void CUBLASAPI cublasDgemm (char transa, char transb, int m, int n,
                                      int k, double alpha, const double *A,
                                      int lda, const double *B, int ldb,
                                      double beta, double *C, int ldc)
-{
+{    
     struct cublasContext *ctx = CUBLAS_GET_CTX();
     int ta, tb;
     int nrowa, nrowb;
@@ -172,6 +172,38 @@ __host__ void CUBLASAPI cublasDgemm (char transa, char transb, int m, int n,
         (((alpha == 0.0f) || (k == 0)) && (beta == 1.0f))) {
         return;
     }
+
+
+    /* if the matrices are all small, it's better to use smaller tiles where
+     * each thread handles only a single result matrix element. This brings
+     * more threads to bear on a problem of a given size, compared to the
+     * standard mathod, and having more threads in play increases performance.
+     * The cutover value has been determined experimentally. */
+    /*
+    if (((m * n) <= CUBLAS_SMALL_SGEMM_MAT_MAX_ELEMS) &&
+        ((m * k) <= CUBLAS_SMALL_SGEMM_MAT_MAX_ELEMS) &&
+        ((n * k) <= CUBLAS_SMALL_SGEMM_MAT_MAX_ELEMS)) {
+       // cublasSmallSgemm (ctx, transa, transb, m, n, k, alpha, A, lda, B, ldb,
+       //                   beta, C, ldc);
+        return;
+    }*/
+
+    /* choose version using 24-bit multiplies if all dimensions are less than
+     * 2001, so we can guarantee that no multiplication result exceeds (2000 *
+     * 2000 * 4) < 2^24. */
+    useFastImul =((lda <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
+                  (ldb <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
+                  (ldc <= CUBLAS_FASTIMUL_F_MAX_DIM) &&
+                  (m   <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
+                  (n   <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
+                  (k   <= CUBLAS_FASTIMUL_F_MAX_DIM));
+
+    if (useFastImul) {
+        cublasFastDgemm (ctx, transa, transb, m, n, k, alpha, A, lda, B, ldb, 
+                         beta, C, ldc);
+        return;
+    }        
+
 
 
     cublasLargeDgemm (ctx, transa, transb, m, n, k, alpha, A, lda, B, ldb, 

@@ -237,7 +237,7 @@ int main(int argc, char* argv[]) {
 
 
 
-  caffe::THREAD_BLOCK_REDUCTION_FACTOR = float(vm["tbrf"].as<int>());
+  Caffe::set_TB(vm["tbrf"].as<int>());
   int fState = vm["clock"].as<int>();
   if (fState != -1)
      nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");

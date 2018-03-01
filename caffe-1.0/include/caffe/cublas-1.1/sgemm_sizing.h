@@ -38,13 +38,10 @@
 // dimension n, counter j
 // dimension k, counter l
 
-#if (CUBLAS_SGEMM_GRIDW!=CUBLAS_SGEMM_GRIDH)
-#error super tile is not square!
-#endif
-
 #define TILE_DIM        (1 << (TILE_DIM_LOG))
 #define TILE_SIZE       (TILE_DIM*TILE_DIM)
-#define SUP_TILE_DIM    (TILE_DIM*CUBLAS_SGEMM_GRIDW)
+#define SUP_TILE_DIMW    (TILE_DIM*CUBLAS_SGEMM_GRIDW)
+#define SUP_TILE_DIMH    (TILE_DIM*CUBLAS_SGEMM_GRIDH)
 
 /* In cases where there are more tile elements than threads in a CTA, each
  * thread needs to walk through the tile. To keep the walking pattern simple,

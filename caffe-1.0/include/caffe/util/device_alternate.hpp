@@ -79,7 +79,7 @@ const char* curandGetErrorString(curandStatus_t error);
 // CUDA: thread number configuration.
 const int CAFFE_CUDA_NUM_THREADS = 512;
 
-extern float THREAD_BLOCK_REDUCTION_FACTOR;
+static int THREAD_BLOCK_REDUCTION_FACTOR = -1;
 
 // CUDA: number of blocks for threads.
 inline int CAFFE_GET_BLOCKS(const int N) {

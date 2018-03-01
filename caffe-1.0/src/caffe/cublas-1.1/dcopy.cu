@@ -87,7 +87,6 @@ __host__ void CUBLASAPI cublasDcopy (int n, const double *x, int incx,
     int threadsPerCta;
     int sizeX = n * (imax (1, abs(incx)));
     size_t texXOfs = 0;
-    int useTexture;
 
     if (!cublasInitialized (ctx)) {
         cublasSetError (ctx, CUBLAS_STATUS_NOT_INITIALIZED);

@@ -46,8 +46,8 @@
  */
 #define TILE_DIM_LOG    (5)
 #define THREAD_COUNT    (CUBLAS_SGEMM_LARGE_THREAD_COUNT)
-#include "caffe/cublas-1.1/dgemm_sizing.h"
-#include "caffe/cublas-1.1/dgemm_common.h"
+#include "caffe/cublas-1.1/sgemm_sizing.h"
+#include "caffe/cublas-1.1/sgemm_common.h"
 
 /*
  * void 
@@ -178,20 +178,19 @@ __host__ void CUBLASAPI cublasSgemm (char transa, char transb, int m, int n,
      * each thread handles only a single result matrix element. This brings
      * more threads to bear on a problem of a given size, compared to the
      * standard mathod, and having more threads in play increases performance.
-     * The cutover value has been determined experimentally.
-     */
+     * The cutover value has been determined experimentally. */
+    /*
     if (((m * n) <= CUBLAS_SMALL_SGEMM_MAT_MAX_ELEMS) &&
         ((m * k) <= CUBLAS_SMALL_SGEMM_MAT_MAX_ELEMS) &&
         ((n * k) <= CUBLAS_SMALL_SGEMM_MAT_MAX_ELEMS)) {
-        cublasSmallSgemm (ctx, transa, transb, m, n, k, alpha, A, lda, B, ldb,
-                          beta, C, ldc);
+       // cublasSmallSgemm (ctx, transa, transb, m, n, k, alpha, A, lda, B, ldb,
+       //                   beta, C, ldc);
         return;
-    }
+    }*/
 
     /* choose version using 24-bit multiplies if all dimensions are less than
      * 2001, so we can guarantee that no multiplication result exceeds (2000 *
-     * 2000 * 4) < 2^24.
-     */
+     * 2000 * 4) < 2^24. */
     useFastImul =((lda <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
                   (ldb <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
                   (ldc <= CUBLAS_FASTIMUL_F_MAX_DIM) &&

@@ -101,10 +101,34 @@ __host__ void cublasLargeSgemm (struct cublasContext *ctx, char transa,
     int sizeA = lda * ((toupper(transa) == 'N') ? k : m);
     int sizeB = ldb * ((toupper(transb) == 'N') ? n : k);
     int useTexture;
-    int usePureHwStepper;
+    int usePureHwStepper = 0;
     int funcIdx;
-    dim3 ctaDimsHw (((n+TILE_DIM-1)/TILE_DIM), ((m+TILE_DIM-1)/TILE_DIM));
-    dim3 ctaDimsSw (CUBLAS_SGEMM_GRIDW, CUBLAS_SGEMM_GRIDH);
+    dim3 ctaDimsHw (((n+TILE_DIM-1)/TILE_DIM),((m+TILE_DIM-1)/ TILE_DIM));
+    dim3 ctaDimsSw;
+
+    /* Calculate number of blocks */ 
+    int maxX = ((n+TILE_DIM-1)/TILE_DIM);
+    int maxY = ((m+TILE_DIM-1)/TILE_DIM);
+    int cublasMaxTB = getTBLimit();
+    if (maxX * maxY <= cublasMaxTB || cublasMaxTB == -1)
+    {
+        ctaDimsSw.x = maxX;
+        ctaDimsSw.y = maxY;
+    }
+    else
+    {
+        usePureHwStepper = 0;
+        if (maxX <= cublasMaxTB)
+        {
+            ctaDimsSw.x = maxX;
+            ctaDimsSw.y = cublasMaxTB / maxX;
+        }
+        else
+        {
+            ctaDimsSw.x = cublasMaxTB;
+            ctaDimsSw.y = 1;
+        }
+    }
 
     if (!cublasInitialized (ctx)) {
         cublasSetError (ctx, CUBLAS_STATUS_NOT_INITIALIZED);
@@ -120,8 +144,8 @@ __host__ void cublasLargeSgemm (struct cublasContext *ctx, char transa,
     /* choose HW-only stepping if dimensions of result matrix do not exceed the
      * maximum CTA grid dimensions.
      */
-    usePureHwStepper = ((m < (CUBLAS_CTA_MAX_DIM * TILE_DIM)) &&
-                        (n < (CUBLAS_CTA_MAX_DIM * TILE_DIM)));
+    //usePureHwStepper = ((m < (CUBLAS_CTA_MAX_DIM * TILE_DIM)) &&
+    //                    (n < (CUBLAS_CTA_MAX_DIM * TILE_DIM)));
 
     /* we can eliminate checking for endcases if we know all tiles are fully
      * populated. Important benchmark case!
@@ -174,7 +198,6 @@ __host__ void cublasLargeSgemm (struct cublasContext *ctx, char transa,
 
     funcIdx = ((useTexture << 3) | (fullTilesOnly << 2) | 
                (params.transa << 1) | params.transb);
-
     cudaStat = cudaGetLastError(); /* clear error status */
     if (usePureHwStepper) {
         sgemm_hw[funcIdx]<<<ctaDimsHw,THREAD_COUNT>>>(params);

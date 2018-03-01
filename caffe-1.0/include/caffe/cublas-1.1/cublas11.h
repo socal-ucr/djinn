@@ -83,6 +83,7 @@
 #endif
 #endif
 
+
 typedef char cublasOperation_t;
 #define CUBLAS_OP_N 'N'
 #define CUBLAS_OP_T 'T'
@@ -93,7 +94,6 @@ using namespace cublas11;
 extern "C" {
 #endif /* __cplusplus */
 
-
 /* CUBLAS status returns */
 #define CUBLAS_STATUS_SUCCESS           0x00000000
 #define CUBLAS_STATUS_NOT_INITIALIZED   0x00000001
@@ -103,6 +103,9 @@ extern "C" {
 #define CUBLAS_STATUS_EXECUTION_FAILED  0x0000000D
 #define CUBLAS_STATUS_INTERNAL_ERROR    0x0000000E
 
+extern int cublasMaxTB;
+void setTBLimit(int limit);
+int  getTBLimit();
 /* CUBLAS data types */
 typedef unsigned int cublasStatus;
 
