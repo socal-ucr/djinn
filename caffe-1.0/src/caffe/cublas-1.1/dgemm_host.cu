@@ -191,7 +191,7 @@ __host__ void CUBLASAPI cublasDgemm (char transa, char transb, int m, int n,
     /* choose version using 24-bit multiplies if all dimensions are less than
      * 2001, so we can guarantee that no multiplication result exceeds (2000 *
      * 2000 * 4) < 2^24. */
-    useFastImul =((lda <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
+    /*useFastImul =((lda <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
                   (ldb <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
                   (ldc <= CUBLAS_FASTIMUL_F_MAX_DIM) &&
                   (m   <= CUBLAS_FASTIMUL_F_MAX_DIM) && 
@@ -202,7 +202,7 @@ __host__ void CUBLASAPI cublasDgemm (char transa, char transb, int m, int n,
         cublasFastDgemm (ctx, transa, transb, m, n, k, alpha, A, lda, B, ldb, 
                          beta, C, ldc);
         return;
-    }        
+    }*/        
 
 
 
