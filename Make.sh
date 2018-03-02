@@ -2,7 +2,7 @@
 
 cd caffe-1.0
 echo "MAKE CAFFE"
-make clean && make all -j 10
+make clean && make all -j 50
 make distribute
 echo "MAKE COMMON"
 cd ../common

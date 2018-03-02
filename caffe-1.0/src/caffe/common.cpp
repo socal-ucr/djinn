@@ -90,7 +90,6 @@ Caffe::Caffe()
   // Try to create a cublas handler, and report an error if failed (but we will
   // keep the program running as one might just want to run CPU code).
   // Try to create a curand handler.
-  cublasInit();
   if (curandCreateGenerator(&curand_generator_, CURAND_RNG_PSEUDO_DEFAULT)
       != CURAND_STATUS_SUCCESS ||
       curandSetPseudoRandomGeneratorSeed(curand_generator_, cluster_seedgen())
@@ -129,7 +128,6 @@ void Caffe::SetDevice(const int device_id) {
   if (current_device == device_id) {
     return;
   }
-  cublasShutdown();
   // The call to cudaSetDevice must come before any calls to Get, which
   // may perform initialization using the GPU.
   CUDA_CHECK(cudaSetDevice(device_id));
@@ -140,7 +138,6 @@ void Caffe::SetDevice(const int device_id) {
       CURAND_RNG_PSEUDO_DEFAULT));
   CURAND_CHECK(curandSetPseudoRandomGeneratorSeed(Get().curand_generator_,
       cluster_seedgen()));
-  cublasInit();
 }
 
 void Caffe::DeviceQuery() {

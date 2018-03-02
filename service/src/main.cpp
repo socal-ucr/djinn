@@ -32,45 +32,39 @@
 #include "socket.h"
 #include "thread.h"
 #include "tonic.h"
-//TITAN X
-//#define NUM_F_STATES 19
-
 //P100
-#define NUM_F_STATES 10
-#define NUM_RPS 55
 
 using namespace std;
 namespace po = boost::program_options;
 
 map<string, Net<float>*> nets;
-int power_avg=0, power_peak=0;
-int clock_avg=0, clock_peak=0;
 bool debug;
 int gpu;
-//TITAN X
-//unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
 
-//P100
-unsigned int F_STATES [NUM_F_STATES]= {0, 6, 14, 22, 30, 38, 46, 54, 62, 74};
-unsigned int RPS[NUM_RPS]=
-//{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 
-{ 10,
- 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
- 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
- 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
- 41, 42, 43, 44, 45, 46, 
- 47, 48, 49, 50,
- 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
- 61, 62, 63, 64};
-unsigned int rps_index = 0;
-unsigned int fs_index = 0;
+#define TITANX 1
+#define P100   2
+#define V100   3
+
+#define GPU_ID V100
+
+#if GPU_ID == 1
+    #define NUM_F_STATES 19
+    unsigned int F_STATES [NUM_F_STATES]= {0, 8, 16, 24, 32, 40, 48, 56, 69, 72, 80, 88, 96, 103, 111, 119, 127, 135, 140};
+#elif GPU_ID == 2 
+    #define NUM_F_STATES 10
+    unsigned int F_STATES [NUM_F_STATES]= {0, 6, 14, 22, 30, 38, 46, 54, 62, 74};
+#elif GPU_ID == 3
+    #define NUM_F_STATES 15
+    unsigned int F_STATES [NUM_F_STATES]= {4,17,32,44,57,71,84,97,111,124,137,151,164,177,186};
+#else
+#endif
 FILE * logFile;
 pthread_rwlock_t output_rwlock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_mutex_t GPU_mutex= PTHREAD_MUTEX_INITIALIZER;
-
+std::string outfileName;
 unsigned int memClocksMHz[4];
-unsigned int graphicClocksMHz[4][150];
-unsigned int graphicClockCount[4] = {150, 150, 150, 150};
+unsigned int graphicClocksMHz[4][200];
+unsigned int graphicClockCount[4] = {200, 200, 200, 200};
 unsigned int memClockCount = 4;
 
 unsigned long START_TIME;
@@ -79,8 +73,6 @@ void  INThandler(int sig)
 
     signal(sig, SIG_IGN);
     printf("CLEAN UP\n");
-    printf("Average = %d W\nPeak = %d W\n", power_avg/1000, power_peak/1000);
-    printf("Average = %d MHz\nPeak = %d MHz\n", clock_avg, clock_peak);
     nvmlShutdown();
     exit(1);
 }
@@ -141,8 +133,11 @@ void *record_power(void* args)
         n++;
         usleep(1000);
     }
-    
-    FILE *power_stats = fopen("power_stats.out", "a");
+   
+    std::string poweroutfileName = "power_" + outfileName;
+    FILE *power_stats = fopen(poweroutfileName.c_str(), "w");
+    std::string header = "power,clock_avg";
+    fwrite(header.c_str(),sizeof(char), header.length(),power_stats);
     for(int i = 0; i < freqArray.size(); i ++)
     {
         std::string power_temp = std::to_string(powerArray[i]);
@@ -152,8 +147,6 @@ void *record_power(void* args)
         fwrite(clock_temp.c_str(),sizeof(char), clock_temp.length(),power_stats);
         fwrite("\n",sizeof(char), 1,power_stats);
     }
-
-    fwrite("\n---\n", sizeof(char), 5, power_stats);
     fflush(power_stats);
     fclose(power_stats);
     
@@ -226,15 +219,15 @@ int main(int argc, char* argv[]) {
     // Main thread for the server
     // Spawn a new thread for each request
     debug = vm["debug"].as<bool>();
-    Caffe::set_phase(Caffe::TEST);
     if (gpu != -1)
     {
-        Caffe::set_mode(Caffe::GPU);
         Caffe::SetDevice(gpu);
+        Caffe::set_mode(Caffe::GPU);
     }
     else
         Caffe::set_mode(Caffe::CPU);
 
+    Caffe::set_phase(Caffe::TEST);
 
 
   Caffe::set_TB(vm["tbrf"].as<int>());
@@ -264,7 +257,6 @@ int main(int argc, char* argv[]) {
   LOG(INFO) << "Server is listening for requests on " << vm["portno"].as<int>();
 
     //Create log file
-    std::string outfileName;
     outfileName = vm["outfile"].as<string>() + ".out";
     logFile = fopen(outfileName.c_str(),"w");
     if(logFile == NULL)

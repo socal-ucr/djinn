@@ -53,9 +53,8 @@ extern bool debug;
 extern FILE * logFile;
 extern pthread_rwlock_t output_rwlock;
 
-extern int power_avg, power_peak;
-extern int clock_avg, clock_peak;
 
+extern int gpu;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t GPU_handle_cond = PTHREAD_COND_INITIALIZER;
 std::list<Request> GPU_queue;
@@ -178,6 +177,7 @@ void* request_handler(void* sock)
     
     struct timespec time;
     int rcvd;
+    Caffe::SetDevice(gpu);
     while (1) 
     {
         struct Request req;
