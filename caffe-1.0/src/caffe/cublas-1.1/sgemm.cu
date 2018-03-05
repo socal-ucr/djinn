@@ -196,6 +196,9 @@ __host__ void cublasLargeSgemm (struct cublasContext *ctx, char transa,
     params.texAOfs = (int)texAOfs;
     params.texBOfs = (int)texBOfs;
 
+    #ifdef PRINT_TB
+    printf("%d\n",((n+TILE_DIM-1)/TILE_DIM) * ((m+TILE_DIM-1)/ TILE_DIM));
+    #endif //PRINT_TB
     funcIdx = ((useTexture << 3) | (fullTilesOnly << 2) | 
                (params.transa << 1) | params.transb);
     cudaStat = cudaGetLastError(); /* clear error status */

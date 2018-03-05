@@ -133,6 +133,9 @@ __host__ void cublasFastSgemm (struct cublasContext *ctx, char transa,
             ctaDimsSw.y = 1;
        }
     }
+    #ifdef PRINT_TB
+    printf("%d\n",((n+TILE_DIM-1)/TILE_DIM) * ((m+TILE_DIM-1)/ TILE_DIM));
+    #endif //PRINT_TB
 
     /* We can only use texture if the matrices fit into the largest matrix 
      * size supported.

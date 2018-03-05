@@ -83,7 +83,9 @@ static int THREAD_BLOCK_REDUCTION_FACTOR = -1;
 
 // CUDA: number of blocks for threads.
 inline int CAFFE_GET_BLOCKS(const int N) {
-    
+#ifdef PRINT_TB
+    printf("%d\n",(N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS);
+#endif //PRINT_TB
     if (THREAD_BLOCK_REDUCTION_FACTOR == -1)
         return (N + CAFFE_CUDA_NUM_THREADS - 1) / CAFFE_CUDA_NUM_THREADS;
     else

@@ -136,7 +136,7 @@ void *record_power(void* args)
    
     std::string poweroutfileName = "power_" + outfileName;
     FILE *power_stats = fopen(poweroutfileName.c_str(), "w");
-    std::string header = "power,clock_avg";
+    std::string header = "power,clock\n";
     fwrite(header.c_str(),sizeof(char), header.length(),power_stats);
     for(int i = 0; i < freqArray.size(); i ++)
     {
