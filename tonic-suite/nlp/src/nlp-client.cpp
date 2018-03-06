@@ -32,6 +32,8 @@
 #include "SENNA_CHK.h"
 #include "SENNA_NER.h"
 
+#include "SENNA_utils.h"
+#include "SENNA_nn.h"
 #include "socket.h"
 #include "tonic.h"
 
@@ -42,6 +44,253 @@ using namespace std;
 namespace po = boost::program_options;
 
 bool debug;
+
+std::vector<unsigned int> distribution;
+
+TonicSuiteApp app;
+int socketfd = -1;
+unsigned int total_requests;
+
+  int *chk_labels = NULL;
+  int *pt0_labels = NULL;
+  int *pos_labels = NULL;
+  int *ner_labels = NULL;
+  // weights not used
+  SENNA_POS *pos;
+  SENNA_CHK *chk;
+  SENNA_NER *ner;
+  SENNA_Tokens *tokens;
+  po::variables_map vm;
+void* sender_thread(void *args)
+{
+    int input_size;
+    app.socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
+    if(app.task == "pos")
+    {
+        pos->input_state = SENNA_realloc(
+        pos->input_state, sizeof(float),
+            (app.pl.num + pos->window_size - 1) *
+            (pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size));
+        pos->output_state = SENNA_realloc(pos->output_state, sizeof(float),
+                                    app.pl.num * pos->output_state_size);
+
+        SENNA_nn_lookup(pos->input_state,
+                  pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size,
+                  pos->ll_word_weight, pos->ll_word_size, pos->ll_word_max_idx,
+                  tokens->word_idx, app.pl.num, pos->ll_word_padding_idx,
+                  (pos->window_size - 1) / 2);
+        SENNA_nn_lookup(pos->input_state + pos->ll_word_size,
+                  pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size,
+                  pos->ll_caps_weight, pos->ll_caps_size, pos->ll_caps_max_idx,
+                  tokens->caps_idx, app.pl.num, pos->ll_caps_padding_idx,
+                  (pos->window_size - 1) / 2);
+        SENNA_nn_lookup(pos->input_state + pos->ll_word_size + pos->ll_caps_size,
+                  pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size,
+                  pos->ll_suff_weight, pos->ll_suff_size, pos->ll_suff_max_idx,
+                  tokens->suff_idx, app.pl.num, pos->ll_suff_padding_idx,
+                  (pos->window_size - 1) / 2);
+
+        app.pl.data = (char *)malloc(
+            app.pl.num * (pos->window_size * (pos->ll_word_size + pos->ll_caps_size +
+                                    pos->ll_suff_size)) * sizeof(float));
+
+        for (int idx = 0; idx < app.pl.num; idx++)
+        {
+            memcpy((char *)(app.pl.data +
+                    idx * (pos->window_size) *
+                        (pos->ll_word_size + pos->ll_caps_size +
+                         pos->ll_suff_size) *
+                        sizeof(float)),
+           (char *)(pos->input_state +
+                    idx * (pos->ll_word_size + pos->ll_caps_size +
+                           pos->ll_suff_size)),
+           pos->window_size *
+               (pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size) *
+               sizeof(float));
+        }
+
+    }
+    else if (app.task =="chk")
+    {
+        // chk needs internal pos
+        TonicSuiteApp pos_app = app;
+        pos_app.task = "pos";
+        pos_app.network = vm["common"].as<string>() + "configs/" + "pos.prototxt";
+        pos_app.weights = vm["common"].as<string>() + "weights/" + "pos.caffemodel";
+
+        strcpy(pos_app.pl.req_name, pos_app.task.c_str());
+        pos_app.pl.size =
+            pos->window_size *
+            (pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size);
+
+        SOCKET_send(pos_app.socketfd, (char *)&pos_app.pl.req_name, MAX_REQ_SIZE,
+                  debug);
+        // send len
+        SOCKET_txsize(pos_app.socketfd, pos_app.pl.num * pos_app.pl.size);
+
+        pos_labels = SENNA_POS_forward(pos, tokens->word_idx, tokens->caps_idx,
+                                        tokens->suff_idx, pos_app);
+
+        chk->input_state = SENNA_realloc(
+        chk->input_state, sizeof(float),
+        (app.pl.num + chk->window_size - 1) *
+            (chk->ll_word_size + chk->ll_caps_size + chk->ll_posl_size));
+        chk->output_state = SENNA_realloc(chk->output_state, sizeof(float),
+                                    app.pl.num * chk->output_state_size);
+
+        SENNA_nn_lookup(chk->input_state,
+                  chk->ll_word_size + chk->ll_caps_size + chk->ll_posl_size,
+                  chk->ll_word_weight, chk->ll_word_size, chk->ll_word_max_idx,
+                  tokens->word_idx, app.pl.num, chk->ll_word_padding_idx,
+                  (chk->window_size - 1) / 2);
+        SENNA_nn_lookup(chk->input_state + chk->ll_word_size,
+                  chk->ll_word_size + chk->ll_caps_size + chk->ll_posl_size,
+                  chk->ll_caps_weight, chk->ll_caps_size, chk->ll_caps_max_idx,
+                  tokens->caps_idx, app.pl.num, chk->ll_caps_padding_idx,
+                  (chk->window_size - 1) / 2);
+        SENNA_nn_lookup(chk->input_state + chk->ll_word_size + chk->ll_caps_size,
+                  chk->ll_word_size + chk->ll_caps_size + chk->ll_posl_size,
+                  chk->ll_posl_weight, chk->ll_posl_size, chk->ll_posl_max_idx,
+                  pos_labels, app.pl.num, chk->ll_posl_padding_idx,
+                  (chk->window_size - 1) / 2);
+
+        input_size = chk->ll_word_size + chk->ll_caps_size + chk->ll_posl_size;
+
+        app.pl.data = (char *)malloc(app.pl.num * (chk->window_size * input_size) *
+                               sizeof(float));
+
+        for (int idx = 0; idx < app.pl.num; idx++)
+        {
+            memcpy((char *)(app.pl.data +
+                    idx * (chk->window_size) * (input_size) * sizeof(float)),
+           (char *)(chk->input_state + idx * input_size),
+           chk->window_size * input_size * sizeof(float));
+        }
+    }
+    else
+    {
+        input_size = ner->ll_word_size + ner->ll_caps_size + ner->ll_gazl_size +
+                   ner->ll_gazm_size + ner->ll_gazo_size + ner->ll_gazp_size;
+
+        ner->input_state =
+            SENNA_realloc(ner->input_state, sizeof(float),
+                    (app.pl.num + ner->window_size - 1) * input_size);
+        ner->output_state = SENNA_realloc(ner->output_state, sizeof(float),
+                                    app.pl.num * ner->output_state_size);
+
+        SENNA_nn_lookup(ner->input_state, input_size, ner->ll_word_weight,
+                  ner->ll_word_size, ner->ll_word_max_idx, tokens->word_idx,
+                  app.pl.num, ner->ll_word_padding_idx,
+                  (ner->window_size - 1) / 2);
+        SENNA_nn_lookup(ner->input_state + ner->ll_word_size, input_size,
+                  ner->ll_caps_weight, ner->ll_caps_size, ner->ll_caps_max_idx,
+                  tokens->caps_idx, app.pl.num, ner->ll_caps_padding_idx,
+                  (ner->window_size - 1) / 2);
+        SENNA_nn_lookup(ner->input_state + ner->ll_word_size + ner->ll_caps_size,
+                  input_size, ner->ll_gazl_weight, ner->ll_gazl_size,
+                  ner->ll_gazl_max_idx, tokens->gazl_idx, app.pl.num,
+                  ner->ll_gazt_padding_idx, (ner->window_size - 1) / 2);
+        SENNA_nn_lookup(ner->input_state + ner->ll_word_size + ner->ll_caps_size +
+                      ner->ll_gazl_size,
+                  input_size, ner->ll_gazm_weight, ner->ll_gazm_size,
+                  ner->ll_gazm_max_idx, tokens->gazm_idx, app.pl.num,
+                  ner->ll_gazt_padding_idx, (ner->window_size - 1) / 2);
+        SENNA_nn_lookup(ner->input_state + ner->ll_word_size + ner->ll_caps_size +
+                      ner->ll_gazl_size + ner->ll_gazm_size,
+                  input_size, ner->ll_gazo_weight, ner->ll_gazo_size,
+                  ner->ll_gazo_max_idx, tokens->gazo_idx, app.pl.num,
+                  ner->ll_gazt_padding_idx, (ner->window_size - 1) / 2);
+        SENNA_nn_lookup(ner->input_state + ner->ll_word_size + ner->ll_caps_size +
+                      ner->ll_gazl_size + ner->ll_gazm_size + ner->ll_gazo_size,
+                  input_size, ner->ll_gazp_weight, ner->ll_gazp_size,
+                  ner->ll_gazp_max_idx, tokens->gazp_idx, app.pl.num,
+                  ner->ll_gazt_padding_idx, (ner->window_size - 1) / 2);
+
+        app.pl.data = (char *)malloc(app.pl.num * (ner->window_size * input_size) *
+                               sizeof(float));
+
+        for (int idx = 0; idx < app.pl.num; idx++)
+        {
+            memcpy((char *)(app.pl.data +
+                    idx * (ner->window_size) * (input_size) * sizeof(float)),
+           (char *)(ner->input_state + idx * input_size),
+           ner->window_size * input_size * sizeof(float));
+        }
+    }
+
+
+    printf("Start Thread:%d\n",app.socketfd);
+    for(unsigned int i=0; i < total_requests; i++)
+    { 
+        if (app.task == "pos")
+        {
+            // send app
+            SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+            // send len
+            SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
+
+            SOCKET_send(app.socketfd, (char *)app.pl.data,
+                 app.pl.num * app.pl.size * sizeof(float), debug);
+        }
+        else if (app.task == "chk")
+        {
+            // chk foward pass
+            SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+            // send len
+            SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
+
+            SOCKET_send(app.socketfd, (char *)app.pl.data,
+                    chk->window_size * input_size * sizeof(float) * app.pl.num,
+                    debug);
+        }
+        else if (app.task == "ner")
+        {
+            // send app
+            SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+            // send len
+            SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
+
+            ner_labels = SENNA_NER_forward(ner, tokens->word_idx, tokens->caps_idx,
+                                   tokens->gazl_idx, tokens->gazm_idx,
+                                   tokens->gazo_idx, tokens->gazp_idx, app);
+        }
+
+        usleep(distribution[i]);
+    }
+
+    printf("Close Thread\n");
+    SOCKET_close(socketfd, 0);
+
+    return NULL;
+}
+
+void * reciever_thread(void *args)
+{
+    printf("BEFORE:%d\n",app.socketfd);
+    while(app.socketfd == -1) {printf("SOCKETFD:%d\n",app.socketfd);};
+    printf("RECIEVING\n");
+    for(unsigned int i = 0; i < total_requests;i++)
+    {
+        if(app.task == "pos")
+        {
+            SOCKET_receive(app.socketfd, (char *)(pos->output_state),
+                   app.pl.num * (pos->output_state_size) * sizeof(float),
+                   debug);
+        }
+        else if(app.task == "chk")
+        {
+            SOCKET_receive(app.socketfd, (char *)(chk->output_state),
+                  chk->output_state_size * sizeof(float) * app.pl.num, debug);
+        }
+        else
+        {
+            SOCKET_receive(app.socketfd, (char *)(ner->output_state),
+                   ner->output_state_size * sizeof(float) * app.pl.num,
+                   ner->debug);
+        }
+    }
+    printf("RCLOSE\n");
+}
 
 po::variables_map parse_opts(int ac, char **av) {
   // Declare the supported options.
@@ -81,8 +330,25 @@ po::variables_map parse_opts(int ac, char **av) {
 }
 
 int main(int argc, char *argv[]) {
+    //get distribution
+    ifstream inFile;
+    inFile.open("distribution.txt");
+
+    if(!inFile)
+    {
+        printf("No distribution file\n");
+        exit(1);
+    }
+   
+
+    float x;
+    int i = 0;
+    while(inFile >> x)
+        distribution.push_back((unsigned int)(x*1000000.0f));
+    total_requests = distribution.size();
+
   // google::InitGoogleLogging(argv[0]);
-  po::variables_map vm = parse_opts(argc, argv);
+    vm = parse_opts(argc, argv);
 
   /* SENNA Inits */
   /* options */
@@ -91,10 +357,6 @@ int main(int argc, char *argv[]) {
 
   /* the real thing */
   char target_vb[MAX_TARGET_VB_SIZE];
-  int *chk_labels = NULL;
-  int *pt0_labels = NULL;
-  int *pos_labels = NULL;
-  int *ner_labels = NULL;
 
   /* inputs */
   SENNA_Hash *word_hash = SENNA_Hash_new(opt_path, "hash/words.lst");
@@ -117,9 +379,9 @@ int main(int argc, char *argv[]) {
   SENNA_Hash *ner_hash = SENNA_Hash_new(opt_path, "hash/ner.lst");
 
   // weights not used
-  SENNA_POS *pos = SENNA_POS_new(opt_path, "data/pos.dat");
-  SENNA_CHK *chk = SENNA_CHK_new(opt_path, "data/chk.dat");
-  SENNA_NER *ner = SENNA_NER_new(opt_path, "data/ner.dat");
+  pos = SENNA_POS_new(opt_path, "data/pos.dat");
+  chk = SENNA_CHK_new(opt_path, "data/chk.dat");
+  ner = SENNA_NER_new(opt_path, "data/ner.dat");
 
   /* tokenizer */
   SENNA_Tokenizer *tokenizer =
@@ -127,7 +389,6 @@ int main(int argc, char *argv[]) {
                           gazm_hash, gazo_hash, gazp_hash, opt_usrtokens);
 
   /* Tonic Suite inits */
-  TonicSuiteApp app;
   debug = vm["debug"].as<bool>();
   app.task = vm["task"].as<string>();
   app.network =
@@ -143,7 +404,7 @@ int main(int argc, char *argv[]) {
   if (app.djinn) {
     app.hostname = vm["hostname"].as<string>();
     app.portno = vm["portno"].as<int>();
-    app.socketfd = CLIENT_init(app.hostname.c_str(), app.portno, debug);
+  //  app.socketfd = CLIENT_init(app.hostname.c_str(), app.portno, debug);
     if (app.socketfd < 0) exit(0);
   } else {
     app.net = new Net<float>(app.network);
@@ -174,80 +435,34 @@ int main(int argc, char *argv[]) {
   while (getline(file, str)) text += str;
 
   // tokenize
-  SENNA_Tokens *tokens = SENNA_Tokenizer_tokenize(tokenizer, text.c_str());
+  tokens = SENNA_Tokenizer_tokenize(tokenizer, text.c_str());
   app.pl.num = tokens->n;
 
   if (app.pl.num == 0) LOG(FATAL) << app.input << " empty or no tokens found.";
 
-  if (app.task == "pos") {
-    if (app.djinn) {
-      // send app
-      SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
-      // send len
-      SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
-    } else
-      reshape(app.net, app.pl.num * app.pl.size);
+ 	if(app.djinn)
+  	{
+		pthread_t Sender, Reciever;
+	 	pthread_attr_t attr;
+ 		pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, 1024 * 1024);
+        pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
+        pthread_create(&Sender,&attr,sender_thread,NULL);
+        pthread_create(&Reciever,&attr,reciever_thread,NULL);
+            
+        pthread_join(Sender, NULL);
+        pthread_join(Reciever, NULL);
 
-    pos_labels = SENNA_POS_forward(pos, tokens->word_idx, tokens->caps_idx,
-                                   tokens->suff_idx, app);
-  } else if (app.task == "chk") {
-    // chk needs internal pos
-    TonicSuiteApp pos_app = app;
-    pos_app.task = "pos";
-    pos_app.network = vm["common"].as<string>() + "configs/" + "pos.prototxt";
-    pos_app.weights = vm["common"].as<string>() + "weights/" + "pos.caffemodel";
-
-    if (!pos_app.djinn) {
-      pos_app.net = new Net<float>(pos_app.network);
-      pos_app.net->CopyTrainedLayersFrom(pos_app.weights);
-    }
-    strcpy(pos_app.pl.req_name, pos_app.task.c_str());
-    pos_app.pl.size =
-        pos->window_size *
-        (pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size);
-
-    // send pos app
-    if (pos_app.djinn) {
-      pos_app.socketfd =
-          CLIENT_init(pos_app.hostname.c_str(), pos_app.portno, debug);
-      SOCKET_send(pos_app.socketfd, (char *)&pos_app.pl.req_name, MAX_REQ_SIZE,
-                  debug);
-      // send len
-      SOCKET_txsize(pos_app.socketfd, pos_app.pl.num * pos_app.pl.size);
-    } else
-      reshape(pos_app.net, pos_app.pl.num * pos_app.pl.size);
-
-    pos_labels = SENNA_POS_forward(pos, tokens->word_idx, tokens->caps_idx,
-                                   tokens->suff_idx, pos_app);
-
-    SOCKET_close(pos_app.socketfd, debug);
-    // chk foward pass
-    if (app.djinn) {
-      SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
-      // send len
-      SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
-    } else {
-      free(pos_app.net);
-      reshape(app.net, app.pl.num * app.pl.size);
-    }
-
-    chk_labels = SENNA_CHK_forward(chk, tokens->word_idx, tokens->caps_idx,
-                                   pos_labels, app);
-  } else if (app.task == "ner") {
-    if (app.djinn) {
-      // send app
-      SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
-      // send len
-      SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
-    } else
-      reshape(app.net, app.pl.num * app.pl.size);
-
-    ner_labels = SENNA_NER_forward(ner, tokens->word_idx, tokens->caps_idx,
-                                   tokens->gazl_idx, tokens->gazm_idx,
-                                   tokens->gazo_idx, tokens->gazp_idx, app);
+        SOCKET_close(socketfd, 0);	
+  	}
+  else
+  {
+      printf("Only Works with remote server\n");
+      exit(1);
   }
 
-  for (int i = 0; i < tokens->n; i++) {
+/*
+    for (int i = 0; i < tokens->n; i++) {
     printf("%15s", tokens->words[i]);
     if (app.task == "pos")
       printf("\t%10s", SENNA_Hash_key(pos_hash, pos_labels[i]));
@@ -259,7 +474,7 @@ int main(int argc, char *argv[]) {
   }
   // end of sentence
   printf("\n");
-
+*/
   // clean up
   SENNA_Tokenizer_free(tokenizer);
 

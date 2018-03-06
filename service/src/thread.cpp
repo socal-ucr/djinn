@@ -69,6 +69,7 @@ extern unsigned long START_TIME;
 void * GPU_handler(void * args)
 {
 
+    Caffe::SetDevice(gpu);
     struct timespec tStart, tEnd;
     while(1)
     {
@@ -107,8 +108,6 @@ void * GPU_handler(void * args)
         current_req.GPUTime = (tEnd.tv_sec * 1000000ul) + (tEnd.tv_nsec / 1000ul);
         current_req.GPUTime -= (tStart.tv_sec * 1000000ul) + (tStart.tv_nsec / 1000ul);
 
-        if(current_req.GPUTime > 1000000)
-            printf("%lu,%lu,%lu,%lu\n",tEnd.tv_sec,tEnd.tv_nsec,tStart.tv_sec,tStart.tv_nsec);
         if (current_req.out_elts != out_blobs[0]->count())
             LOG(FATAL) << "out_size =! out_blobs[0]->count())";
         else
