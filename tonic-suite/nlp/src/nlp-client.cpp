@@ -259,7 +259,6 @@ void* sender_thread(void *args)
     }
 
     printf("Close Thread\n");
-    SOCKET_close(socketfd, 0);
 
     return NULL;
 }
@@ -404,6 +403,7 @@ int main(int argc, char *argv[]) {
   if (app.djinn) {
     app.hostname = vm["hostname"].as<string>();
     app.portno = vm["portno"].as<int>();
+    app.socketfd = -1;
   //  app.socketfd = CLIENT_init(app.hostname.c_str(), app.portno, debug);
     if (app.socketfd < 0) exit(0);
   } else {
@@ -453,7 +453,6 @@ int main(int argc, char *argv[]) {
         pthread_join(Sender, NULL);
         pthread_join(Reciever, NULL);
 
-        SOCKET_close(socketfd, 0);	
   	}
   else
   {

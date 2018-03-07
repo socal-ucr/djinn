@@ -7,7 +7,7 @@ EXTRA_CXXFLAGS = -Wno-sign-compare \
 								 -O3 \
 								 -fpermissive \
 								 -I$(COMMON)/include \
-								 -I../../../$(CAFFE)/include \
+								 -I/home/wong936/djinn/caffe-1.0/$(CAFFE)/include \
 								 -I$(CUDA)/include \
 								 -I/usr/include/hdf5/serial/ 
 
@@ -19,7 +19,7 @@ include ../kaldi.mk
 
 LDFLAGS += $(CUDA_LDFLAGS) -L/usr/lib/x86_64-linux-gnu/hdf5/serial/
 LDLIBS += $(CUDA_LDLIBS) $(COMMON)/libtonic.a \
-					../../../$(CAFFE)/lib/libcaffe.so \
+					/home/wong936/djinn/caffe-1.0/$(CAFFE)/lib/libcaffe.so \
 					-lglog
 
 

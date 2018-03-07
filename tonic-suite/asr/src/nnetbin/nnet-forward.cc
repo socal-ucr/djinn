@@ -46,13 +46,72 @@
 #include "socket.h"
 #include "tonic.h"
 
-#define DEBUG 0
-
-int main(int argc, char *argv[]) {
   using namespace kaldi;
   using namespace kaldi::nnet1;
   typedef kaldi::int32 int32;
+#define DEBUG 0
+TonicSuiteApp app;
+std::vector<unsigned int> distribution;
+unsigned int total_requests = 1;
+bool debug;
+std::vector<CuMatrix<BaseFloat> > output_list;
+int offset = 0;
+std::vector<int> feats_row_cnt;
+CuMatrix<BaseFloat> feats, feats_transf, nnet_out;
+volatile int socketfd = -1;
+void* sender_thread(void *args)
+{
+    app.socketfd = CLIENT_init((char *)app.hostname.c_str(), app.portno, debug);
+    socketfd = 1;
+    //printf("Start Thread:%d\n",socketfd);
+    for(unsigned int i=0; i < total_requests; i++)
+    {  
+        SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+
+        // Send data length
+        SOCKET_txsize(app.socketfd, offset);
+
+        // Send features
+        SOCKET_send(app.socketfd, (char *)app.pl.data, offset * sizeof(float),
+                  debug);
+
+        //usleep(distribution[i]);
+        usleep(100000);
+    }
+
+    //printf("Close Sender\n");
+
+    return NULL;
+}
+
+void * reciever_thread(void *args)
+{
+    //printf("BEFORE:%d\n",app.socketfd);
+    while(socketfd == -1) {};
+    //printf("RECIEVING\n");
+    for(unsigned int i = 0; i < total_requests;i++)
+    {
+      int total_rcvd = 0;
+      for (int feat_idx = 0; feat_idx < feats_row_cnt.size(); feat_idx++) {
+        // Resize the receiving matrix
+        nnet_out.Resize(feats_row_cnt[feat_idx], 1706);
+        for (MatrixIndexT i = 0; i < nnet_out.NumRows(); i++) {
+          int rcvd =
+              SOCKET_receive(app.socketfd, (char *)nnet_out.Row(i).Data(),
+                             1706 * sizeof(float), debug);
+          total_rcvd += rcvd;
+        }
+        output_list.push_back(nnet_out);
+      }
+    }
+    //printf("Close Reciever\n");
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+
   try {
+
     const char *usage =
         "Perform forward pass through Neural Network.\n"
         "\n"
@@ -78,7 +137,7 @@ int main(int argc, char *argv[]) {
     po.Register("batch", &batch, "Batch size");
 
     // DjiNN service information
-    bool djinn = false;
+    bool djinn = true;
     po.Register("djinn", &djinn, "Use DjiNN service?");
     string hostname = "localhost";
     po.Register("hostname", &hostname, "Server IP addr");
@@ -88,7 +147,7 @@ int main(int argc, char *argv[]) {
     // Common configuraition
     bool gpu = false;
     po.Register("gpu", &gpu, "Use GPU?");
-    bool debug = false;
+    debug = false;
     po.Register("debug", &debug, "Turn on all debug");
 
     // ASR specific inputs and flags
@@ -114,7 +173,6 @@ int main(int argc, char *argv[]) {
     weight = common + "weights/" + weight;
 
     // Initialize tonic app
-    TonicSuiteApp app;
     app.task = "asr";
     app.network = network;
     app.weights = weight;
@@ -125,12 +183,7 @@ int main(int argc, char *argv[]) {
     if (app.djinn) {
       app.hostname = hostname;
       app.portno = portno;
-      app.socketfd =
-          CLIENT_init((char *)app.hostname.c_str(), app.portno, debug);
-
-      if (app.socketfd < 0) {
-        exit(1);
-      }
+      app.socketfd = -1;
     } else {
       app.net = new Net<float>(app.network);
       app.net->CopyTrainedLayersFrom(app.weights);
@@ -164,7 +217,6 @@ int main(int argc, char *argv[]) {
     SequentialBaseFloatMatrixReader feature_reader(feature_rspecifier);
     BaseFloatMatrixWriter feature_writer(feature_wspecifier);
 
-    CuMatrix<BaseFloat> feats, feats_transf, nnet_out;
     Matrix<BaseFloat> nnet_out_host;
 
     Timer time;
@@ -173,9 +225,7 @@ int main(int argc, char *argv[]) {
     // iterate over all feature files
     // cumulate them for batch processing
     std::vector<float> batched_feats;
-    std::vector<int> feats_row_cnt;
     std::vector<string> feature_keys;
-    int offset = 0;
     int total_rows = 0;
     for (; !feature_reader.Done(); feature_reader.Next()) {
       const Matrix<BaseFloat> &mat = feature_reader.Value();
@@ -217,40 +267,36 @@ int main(int argc, char *argv[]) {
     memcpy((char *)app.pl.data, (char *)&batched_feats[0],
            offset * sizeof(float));
 
-    std::vector<CuMatrix<BaseFloat> > output_list;
     // Inference
     if (app.djinn) {
-      KALDI_LOG << "Use DjiNN service to inference.";
+        /*
+        ifstream inFile;
+        inFile.open("distribution.txt");
 
-      // Send request type
-      SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
-      KALDI_LOG << "DEBUG IS " << debug;
-
-      // Send data length
-      SOCKET_txsize(app.socketfd, offset);
-
-      // Send features
-      SOCKET_send(app.socketfd, (char *)app.pl.data, offset * sizeof(float),
-                  debug);
-
-      // Receive results
-      // Receive into multiple kaldi's matrix format
-      int total_rcvd = 0;
-      for (int feat_idx = 0; feat_idx < feats_row_cnt.size(); feat_idx++) {
-        // Resize the receiving matrix
-        nnet_out.Resize(feats_row_cnt[feat_idx], 1706);
-        for (MatrixIndexT i = 0; i < nnet_out.NumRows(); i++) {
-          int rcvd =
-              SOCKET_receive(app.socketfd, (char *)nnet_out.Row(i).Data(),
-                             1706 * sizeof(float), debug);
-          total_rcvd += rcvd;
+        if(!inFile)
+        {
+            printf("No distribution file\n");
+            exit(1);
         }
-        output_list.push_back(nnet_out);
-      }
-      if (total_rcvd != total_rows * 1706 * sizeof(float)) {
-        KALDI_ERR << "Not receiving enought output";
-        exit(1);
-      }
+
+
+        float x;
+        int i = 0;
+        while(inFile >> x)
+            distribution.push_back((unsigned int)(x*1000000.0f));
+        total_requests = distribution.size(); */
+		pthread_t Sender,Reciever;
+ 		pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, 1024 * 1024);
+        pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
+        pthread_create(&Sender,&attr,sender_thread,NULL);
+        pthread_create(&Reciever,&attr,reciever_thread,NULL);
+            
+        pthread_join(Sender, NULL);
+        pthread_join(Reciever, NULL);
+
+        SOCKET_close(app.socketfd, 0);
 
       // Close the socket
       //      SOCKET_close(app.socketfd, debug);
