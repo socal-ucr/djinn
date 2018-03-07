@@ -43,7 +43,7 @@ namespace po = boost::program_options;
 unsigned int total_requests;
 std::vector<unsigned int> distribution;
 
-int socketfd = -1;
+volatile int socketfd = -1;
 void* sender_thread(void *args)
 {
 
@@ -72,8 +72,7 @@ void * reciever_thread(void *args)
 {
     float* preds = (float*)malloc(app.pl.num * sizeof(float));
 
-    printf("BEFORE:%d\n",socketfd);
-    while(socketfd == -1) {printf("SOCKETFD:%d\n",socketfd);};
+    while(socketfd == -1) {};
     printf("RECIEVING\n");
     for(unsigned int i = 0; i < total_requests;i++)
     {

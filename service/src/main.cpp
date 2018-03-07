@@ -319,7 +319,6 @@ int main(int argc, char* argv[]) {
 
         if (thread_cnt == total_thread_cnt)
         {
-            printf("THREAD_WAITING\n");
             for(int i = 0; i < thread_cnt; i++)
             if (pthread_join(threads[i], NULL) != 0)
                 LOG(FATAL) << "Failed to join.\n";

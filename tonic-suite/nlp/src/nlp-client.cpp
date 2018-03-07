@@ -48,7 +48,7 @@ bool debug;
 std::vector<unsigned int> distribution;
 
 TonicSuiteApp app;
-int socketfd = -1;
+volatile int socketfd = -1;
 unsigned int total_requests;
 
   int *chk_labels = NULL;
@@ -65,6 +65,7 @@ void* sender_thread(void *args)
 {
     int input_size;
     app.socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
+    socketfd = 1;
     if(app.task == "pos")
     {
         pos->input_state = SENNA_realloc(
@@ -250,9 +251,9 @@ void* sender_thread(void *args)
             // send len
             SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
 
-            ner_labels = SENNA_NER_forward(ner, tokens->word_idx, tokens->caps_idx,
-                                   tokens->gazl_idx, tokens->gazm_idx,
-                                   tokens->gazo_idx, tokens->gazp_idx, app);
+            SOCKET_send(app.socketfd, app.pl.data,
+                app.pl.num * (ner->window_size * input_size * sizeof(float)),
+                ner->debug);
         }
 
         usleep(distribution[i]);
@@ -265,8 +266,7 @@ void* sender_thread(void *args)
 
 void * reciever_thread(void *args)
 {
-    printf("BEFORE:%d\n",app.socketfd);
-    while(app.socketfd == -1) {printf("SOCKETFD:%d\n",app.socketfd);};
+    while(socketfd == -1) {};
     printf("RECIEVING\n");
     for(unsigned int i = 0; i < total_requests;i++)
     {
@@ -403,7 +403,6 @@ int main(int argc, char *argv[]) {
   if (app.djinn) {
     app.hostname = vm["hostname"].as<string>();
     app.portno = vm["portno"].as<int>();
-    app.socketfd = -1;
   //  app.socketfd = CLIENT_init(app.hostname.c_str(), app.portno, debug);
     if (app.socketfd < 0) exit(0);
   } else {

@@ -126,7 +126,7 @@ class Caffe {
   static void SetDevice(const int device_id);
   // Prints the current GPU status.
   static void DeviceQuery();
- inline static void set_TB(int max) {printf("SETMAXTB:%d\n",max); caffe::THREAD_BLOCK_REDUCTION_FACTOR = max; setTBLimit(max);}
+ inline static void set_TB(int max) {caffe::THREAD_BLOCK_REDUCTION_FACTOR = max; setTBLimit(max);}
 
  protected:
 #ifndef CPU_ONLY
