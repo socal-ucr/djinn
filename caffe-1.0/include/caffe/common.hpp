@@ -70,12 +70,7 @@ void GlobalInit(int* pargc, char*** pargv);
 class Caffe {
  public:
   ~Caffe();
-  inline static Caffe& Get() {
-    if (!singleton_.get()) {
-      singleton_.reset(new Caffe());
-    }
-    return *singleton_;
-  }
+  static Caffe& Get();
   enum Brew { CPU, GPU };
   enum Phase { TRAIN, TEST };
 
@@ -136,7 +131,6 @@ class Caffe {
 
   Brew mode_;
   Phase phase_;
-  static shared_ptr<Caffe> singleton_;
 
  private:
   // The private constructor to avoid duplicate instantiation.

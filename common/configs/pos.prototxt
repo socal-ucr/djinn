@@ -15,7 +15,7 @@ layers {
 }
 layers {
   name: "htanh"
-  type: HTANH
+  type: TANH
   bottom: "fc1"
   top: "htanh"
 }

@@ -40,6 +40,12 @@ namespace po = boost::program_options;
 map<string, Net<float>*> nets;
 bool debug;
 int gpu;
+int TBLimit;
+
+std::string net_common;
+std::string net_filename;
+std::string net_weights;
+#define NUM_COLOCATION 8
 
 #define TITANX 1
 #define P100   2
@@ -227,23 +233,24 @@ int main(int argc, char* argv[]) {
     else
         Caffe::set_mode(Caffe::CPU);
 
-    Caffe::set_phase(Caffe::TEST);
 
-
-  Caffe::set_TB(vm["tbrf"].as<int>());
+    TBLimit = vm["tbrf"].as<int>();
+   Caffe::set_tblimit(TBLimit);
   int fState = vm["clock"].as<int>();
   if (fState != -1)
      nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
   // load all models at init
-  ifstream file(vm["nets"].as<string>().c_str());
+  net_common   = vm["common"].as<string>();
+  net_filename = vm["nets"].as<string>();
+  net_weights  = vm["weights"].as<string>();
+  ifstream file(net_filename.c_str());
   string net_name;
   while (file >> net_name) {
-    string net = vm["common"].as<string>() + "configs/" + net_name;
-    Net<float>* temp = new Net<float>(net);
+    string net =  net_common + "configs/" + net_name;
+    Net<float>* temp = new Net<float>(net,caffe::TEST);
     const std::string name = temp->name();
     nets[name] = temp;
-    std::string weights = vm["common"].as<string>() +
-                          vm["weights"].as<string>() + name + ".caffemodel";
+    std::string weights = net_common + net_weights + name + ".caffemodel";
     nets[name]->CopyTrainedLayersFrom(weights);
   }
 
@@ -279,13 +286,19 @@ int main(int argc, char* argv[]) {
 
     std::vector<pthread_t> threads;
 
-    pthread_t GPU_thread;
-    int error = pthread_create(&GPU_thread, NULL, GPU_handler, NULL);
-    if(error != 0)
+    pthread_t* GPU_thread = (pthread_t*)malloc(NUM_COLOCATION * sizeof(pthread_t));
+
+    int error;
+    for(int i = 0; i < NUM_COLOCATION; i ++)
     {
-        LOG(ERROR) << "Failed to create a GPU handler thread.\nERROR:" << error << "\n";
-        exit(1);
+        error = pthread_create(&(GPU_thread[i]), NULL, GPU_handler, NULL);
+        if(error != 0)
+        {
+            LOG(ERROR) << "Failed to create a GPU handler thread.\nERROR:" << error << "\n";
+            exit(1);
+        }
     }
+
     
     pthread_t response_thread;
     error = pthread_create(&response_thread, NULL, response_handler, NULL);
@@ -326,7 +339,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    pthread_cancel(GPU_thread);
+    for(int i = 0; i < NUM_COLOCATION; i ++)
+        pthread_cancel(GPU_thread[i]);
+
     pthread_cancel(response_thread);
     if(POWER)
     {

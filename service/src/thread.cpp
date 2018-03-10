@@ -55,6 +55,10 @@ extern pthread_rwlock_t output_rwlock;
 
 
 extern int gpu;
+extern int TBLimit;
+extern std::string net_common;
+extern std::string net_filename;
+extern std::string net_weights;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t GPU_handle_cond = PTHREAD_COND_INITIALIZER;
 std::list<Request> GPU_queue;
@@ -66,10 +70,28 @@ std::list<Request> response_queue;
 extern unsigned long START_TIME;
 
 
+pthread_mutex_t Caffe_mutex = PTHREAD_MUTEX_INITIALIZER;
 void * GPU_handler(void * args)
 {
+    map<string, Net<float>*> net_map;
 
-    Caffe::SetDevice(gpu);
+    pthread_mutex_lock(&Caffe_mutex);
+        Caffe::SetDevice(gpu);
+        Caffe::set_mode(Caffe::GPU);
+        Caffe::set_tblimit(TBLimit);
+    ifstream file(net_filename.c_str());
+    string net_name;
+    while (file >> net_name)
+    {
+        string net =  net_common + "configs/" + net_name;
+        Net<float>* temp = new Net<float>(net,caffe::TEST);
+        const std::string name = temp->name();
+        net_map[name] = temp;
+        std::string weights = net_common + net_weights + name + ".caffemodel";
+        net_map[name]->CopyTrainedLayersFrom(weights);
+    }
+    pthread_mutex_unlock(&Caffe_mutex);
+    
     struct timespec tStart, tEnd;
     while(1)
     {
@@ -87,7 +109,7 @@ void * GPU_handler(void * args)
 
         //reshape net for current input
         clock_gettime(CLOCK_MONOTONIC,&tStart);
-        Net<float>* net = nets[current_req.req_name]; 
+        Net<float>* net = net_map[current_req.req_name]; 
 
         reshape(net, current_req.sock_elts);
         vector<Blob<float>*> in_blobs = net->input_blobs();
@@ -218,7 +240,7 @@ void* request_handler(void* sock)
         //Add to queue
         pthread_mutex_lock(&queue_mutex);
         GPU_queue.push_back(req);
-        pthread_cond_signal(&GPU_handle_cond);
+        pthread_cond_broadcast(&GPU_handle_cond);
         pthread_mutex_unlock(&queue_mutex);
 
     }

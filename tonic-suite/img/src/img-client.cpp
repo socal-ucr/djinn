@@ -187,9 +187,8 @@ int main(int argc, char** argv)
     }
     else
     {
-        app.net = new Net<float>(app.network);
+        app.net = new Net<float>(app.network,caffe::TEST);
         app.net->CopyTrainedLayersFrom(app.weights);
-        Caffe::set_phase(Caffe::TEST);
         if (app.gpu)
             Caffe::set_mode(Caffe::GPU);
         else
