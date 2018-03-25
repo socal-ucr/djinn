@@ -109,6 +109,14 @@ void* sender_thread(void *args)
                (pos->ll_word_size + pos->ll_caps_size + pos->ll_suff_size) *
                sizeof(float));
         }
+        //WARMUP
+            // send app
+            SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+            // send len
+            SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
+
+            SOCKET_send(app.socketfd, (char *)app.pl.data,
+                 app.pl.num * app.pl.size * sizeof(float), debug);
 
     }
     else if (app.task =="chk")
@@ -167,6 +175,15 @@ void* sender_thread(void *args)
            (char *)(chk->input_state + idx * input_size),
            chk->window_size * input_size * sizeof(float));
         }
+        //warmup
+            // chk foward pass
+            SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+            // send len
+            SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
+
+            SOCKET_send(app.socketfd, (char *)app.pl.data,
+                    chk->window_size * input_size * sizeof(float) * app.pl.num,
+                    debug);
     }
     else
     {
@@ -217,9 +234,18 @@ void* sender_thread(void *args)
            (char *)(ner->input_state + idx * input_size),
            ner->window_size * input_size * sizeof(float));
         }
+        //Warmup
+            // send app
+            SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+            // send len
+            SOCKET_txsize(app.socketfd, app.pl.num * app.pl.size);
+
+            SOCKET_send(app.socketfd, app.pl.data,
+                app.pl.num * (ner->window_size * input_size * sizeof(float)),
+                ner->debug);
     }
 
-
+    usleep(1000000);
     printf("Start Thread:%d\n",app.socketfd);
     for(unsigned int i=0; i < total_requests; i++)
     { 
@@ -268,7 +294,7 @@ void * reciever_thread(void *args)
 {
     while(socketfd == -1) {};
     printf("RECIEVING\n");
-    for(unsigned int i = 0; i < total_requests;i++)
+    for(unsigned int i = 0; i < total_requests+1;i++)
     {
         if(app.task == "pos")
         {
@@ -305,6 +331,8 @@ po::variables_map parse_opts(int ac, char **av) {
       "weights,w", po::value<string>()->default_value("pos.caffemodel"),
       "Pretrained weights (.caffemodel)")(
       "input,i", po::value<string>()->default_value("input/small-input.txt"),
+      "File with text to analyze (.txt)")(
+      "distribution,D", po::value<string>()->default_value("distribution.txt"),
       "File with text to analyze (.txt)")
 
       ("djinn,d", po::value<bool>()->default_value(false),
@@ -329,9 +357,10 @@ po::variables_map parse_opts(int ac, char **av) {
 }
 
 int main(int argc, char *argv[]) {
+    vm = parse_opts(argc, argv);
     //get distribution
     ifstream inFile;
-    inFile.open("distribution.txt");
+    inFile.open(vm["distribution"].as<string>().c_str());
 
     if(!inFile)
     {
@@ -347,7 +376,6 @@ int main(int argc, char *argv[]) {
     total_requests = distribution.size();
 
   // google::InitGoogleLogging(argv[0]);
-    vm = parse_opts(argc, argv);
 
   /* SENNA Inits */
   /* options */
@@ -406,7 +434,7 @@ int main(int argc, char *argv[]) {
   //  app.socketfd = CLIENT_init(app.hostname.c_str(), app.portno, debug);
     if (app.socketfd < 0) exit(0);
   } else {
-    app.net = new Net<float>(app.network);
+  //  app.net = new Net<float>(app.network);
     app.net->CopyTrainedLayersFrom(app.weights);
     if (app.gpu)
       Caffe::set_mode(Caffe::GPU);

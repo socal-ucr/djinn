@@ -105,7 +105,7 @@ void* Caffe::RNG::generator() {
 #else  // Normal GPU + CPU Caffe.
 
 Caffe::Caffe()
-    :  curand_generator_(NULL), thread_block_limit_(-1),random_generator_(),
+    :  curand_generator_(NULL),random_generator_(), thread_block_limit_(-1),
     mode_(Caffe::CPU),
     solver_count_(1), solver_rank_(0), multiprocess_(false) {
   // Try to create a curand handler.
@@ -193,7 +193,19 @@ void Caffe::DeviceQuery() {
       << (prop.kernelExecTimeoutEnabled ? "Yes" : "No");
   return;
 }
-
+void Caffe::getDevicePCIinfo(unsigned int &pciBusID, unsigned int &pciDeviceID, unsigned int &pciDomainID) {
+  cudaDeviceProp prop;
+  int device;
+  if (cudaSuccess != cudaGetDevice(&device)) {
+    printf("No cuda device present.\n");
+    return;
+  }
+  CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+  pciBusID    = static_cast<unsigned int>(prop.pciBusID);
+  pciDeviceID = static_cast<unsigned int>(prop.pciDeviceID);
+  pciDomainID = static_cast<unsigned int>(prop.pciDomainID);
+  return;
+}
 bool Caffe::CheckDevice(const int device_id) {
   // This function checks the availability of GPU #device_id.
   // It attempts to create a context on the device by calling cudaFree(0).

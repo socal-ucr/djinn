@@ -49,6 +49,18 @@ void* sender_thread(void *args)
 
     socketfd = CLIENT_init((char*)app.hostname.c_str(), app.portno, 0);
     printf("Start Thread:%d\n",socketfd);
+
+    //WARMUP
+
+    SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
+    // send len
+    SOCKET_txsize(socketfd, app.pl.num * app.pl.size);
+
+    // send image(s)
+    SOCKET_send(socketfd, (char*)app.pl.data,
+                app.pl.num * app.pl.size * sizeof(float), 0);
+    
+    usleep(1000000);
     for(unsigned int i=0; i < total_requests; i++)
     {  
 
@@ -74,14 +86,15 @@ void * reciever_thread(void *args)
 
     while(socketfd == -1) {};
     printf("RECIEVING\n");
-    for(unsigned int i = 0; i < total_requests;i++)
+    for(unsigned int i = 0; i < total_requests+1;i++)
     {
         SOCKET_receive(socketfd, (char*)preds, app.pl.num * sizeof(float),0);
+        /*
         for (int j = 0; j < app.pl.num;j++)
         {
             printf("%f,",preds[j]);
         }
-        printf("\n");
+        printf("\n");*/
     }
     printf("Close Reciever\n");
 }
@@ -115,7 +128,9 @@ po::variables_map parse_opts(int ac, char** av) {
       "weights,w", po::value<string>()->default_value("imc.caffemodel"),
       "Pretrained weights (.caffemodel)")(
       "input,i", po::value<string>()->default_value("imc-list.txt"),
-      "List of input images (1 jpg/line)")
+      "List of input images (1 jpg/line)")(
+      "distribution,D", po::value<string>()->default_value("distribution.txt"),
+      "Filename of distribution of requests")
 
       ("djinn,d", po::value<bool>()->default_value(false),
        "Use DjiNN service?")("hostname,o",
@@ -150,8 +165,9 @@ po::variables_map parse_opts(int ac, char** av) {
 int main(int argc, char** argv)
 {
 
+    po::variables_map vm = parse_opts(argc, argv);
     ifstream inFile;
-    inFile.open("distribution.txt");
+    inFile.open(vm["distribution"].as<string>().c_str());
 
     if(!inFile)
     {
@@ -165,7 +181,6 @@ int main(int argc, char** argv)
     while(inFile >> x)
         distribution.push_back((unsigned int)(x*1000000.0f));
     total_requests = distribution.size();
-    po::variables_map vm = parse_opts(argc, argv);
 
     bool debug = vm["debug"].as<bool>();
 

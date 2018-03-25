@@ -155,6 +155,7 @@ class Caffe {
   static void SetDevice(const int device_id);
   // Prints the current GPU status.
   static void DeviceQuery();
+  static void getDevicePCIinfo(unsigned int &pciBusID, unsigned int &pciDeviceID, unsigned int &pciDomainID);
   // Check if specified device is available
   static bool CheckDevice(const int device_id);
   // Search from start_id to the highest possible device ordinal,

@@ -121,7 +121,7 @@ __host__ void CUBLASAPI cublasDgemm (char transa, char transb, int m, int n,
     int ta, tb;
     int nrowa, nrowb;
     int info = 0;
-    int useFastImul;
+    //int useFastImul;
 
     if (!cublasInitialized (ctx)) {
         cublasSetError (ctx, CUBLAS_STATUS_NOT_INITIALIZED);

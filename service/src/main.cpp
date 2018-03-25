@@ -32,6 +32,9 @@
 #include "socket.h"
 #include "thread.h"
 #include "tonic.h"
+#include <sys/types.h>
+#include <unistd.h>
+
 //P100
 
 using namespace std;
@@ -45,7 +48,6 @@ int TBLimit;
 std::string net_common;
 std::string net_filename;
 std::string net_weights;
-#define NUM_COLOCATION 8
 
 #define TITANX 1
 #define P100   2
@@ -120,13 +122,14 @@ bool kill_power_t = false;
 void *record_power(void* args)
 {
     nvmlDevice_t* device = (nvmlDevice_t*)args;
-
+ 
     unsigned int power;
     unsigned int clock;
 
     vector<int> freqArray;
     vector<int> powerArray;
     unsigned long n=1;
+
     while(!kill_power_t)
     {
         //POWER
@@ -175,7 +178,9 @@ po::variables_map parse_opts(int ac, char** av) {
       "outfile,o", po::value<string>()->default_value("outfile"),
       "Set outfile name *.out")(
       "power,po", po::value<bool>()->default_value(true),
-      "Collect Power stats")
+      "Collect Power stats")(
+      "colocate,co", po::value<int>()->default_value(1),
+      "Num of colacted requests")
       ("nets,n", po::value<string>()->default_value("nets.txt"),
        "File with list of network configs (.prototxt/line)")(
           "weights,w", po::value<string>()->default_value("weights/"),
@@ -201,19 +206,44 @@ po::variables_map parse_opts(int ac, char** av) {
 
 int main(int argc, char* argv[]) {
     signal(SIGINT, INThandler);
+ 
+    //initialize nvml
+    nvmlChkError(nvmlInit(), "nvmlInit");   
+    po::variables_map vm = parse_opts(argc, argv);
+    // Main thread for the server
+    // Spawn a new thread for each request
+    debug = vm["debug"].as<bool>();
+    TBLimit = vm["tbrf"].as<int>();
+    gpu = vm["gpu"].as<int>();
+    if (gpu != -1)
+    {
+        Caffe::SetDevice(gpu);
+        Caffe::set_mode(Caffe::GPU);
+        Caffe::set_tblimit(TBLimit);
+    }
+    else
+        Caffe::set_mode(Caffe::CPU);
+
+    //setup NVML
     nvmlReturn_t result;
     unsigned int device_count;
     nvmlDevice_t device;
- 
-    //initialize nvml
-    nvmlChkError(nvmlInit(), "nvmlInit");
-
+    unsigned int pciBusID, pciDeviceID,pciDomainID;
+    Caffe::getDevicePCIinfo(pciBusID,pciDeviceID,pciDomainID);
     nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
+    for (unsigned int nvmlDeviceIdx= 0; nvmlDeviceIdx < device_count; ++nvmlDeviceIdx)
+    {
+        nvmlChkError(nvmlDeviceGetHandleByIndex(nvmlDeviceIdx, &device), "GetHandle");
 
+    	nvmlPciInfo_t nvmPCIInfo;
+    	nvmlChkError(nvmlDeviceGetPciInfo ( device, &nvmPCIInfo ),"GetPciInfo");
     
-    po::variables_map vm = parse_opts(argc, argv);
-    gpu = vm["gpu"].as<int>();
-    nvmlChkError(nvmlDeviceGetHandleByIndex(gpu, &device), "GetHandle");
+    	if ( pciBusID == nvmPCIInfo.bus && 
+			 pciDeviceID == nvmPCIInfo.device &&
+		     pciDomainID == nvmPCIInfo.domain )
+        	break;
+    }
+
     //get graphics clock info
     nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
 
@@ -222,23 +252,14 @@ int main(int argc, char* argv[]) {
         nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
     }
 
-    // Main thread for the server
-    // Spawn a new thread for each request
-    debug = vm["debug"].as<bool>();
-    if (gpu != -1)
-    {
-        Caffe::SetDevice(gpu);
-        Caffe::set_mode(Caffe::GPU);
-    }
-    else
-        Caffe::set_mode(Caffe::CPU);
-
-
-    TBLimit = vm["tbrf"].as<int>();
-   Caffe::set_tblimit(TBLimit);
-  int fState = vm["clock"].as<int>();
-  if (fState != -1)
-     nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
+  	int fState = vm["clock"].as<int>();
+  	if (fState != -1)
+	{
+		int current_uid = getuid();
+		setuid(0);
+		nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
+		setuid(current_uid);
+	}
   // load all models at init
   net_common   = vm["common"].as<string>();
   net_filename = vm["nets"].as<string>();
@@ -259,6 +280,7 @@ int main(int argc, char* argv[]) {
   int total_thread_cnt = vm["threadcnt"].as<int>();
   int socketfd = SERVER_init(vm["portno"].as<int>());
   bool POWER = vm["power"].as<bool>();
+  int numColocate = vm["colocate"].as<int>();
   // Listen on socket
   listen(socketfd, 1000);
   LOG(INFO) << "Server is listening for requests on " << vm["portno"].as<int>();
@@ -286,10 +308,10 @@ int main(int argc, char* argv[]) {
 
     std::vector<pthread_t> threads;
 
-    pthread_t* GPU_thread = (pthread_t*)malloc(NUM_COLOCATION * sizeof(pthread_t));
+    pthread_t* GPU_thread = (pthread_t*)malloc(numColocate * sizeof(pthread_t));
 
     int error;
-    for(int i = 0; i < NUM_COLOCATION; i ++)
+    for(int i = 0; i < numColocate; i ++)
     {
         error = pthread_create(&(GPU_thread[i]), NULL, GPU_handler, NULL);
         if(error != 0)
@@ -339,7 +361,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    for(int i = 0; i < NUM_COLOCATION; i ++)
+    for(int i = 0; i < numColocate; i ++)
         pthread_cancel(GPU_thread[i]);
 
     pthread_cancel(response_thread);
