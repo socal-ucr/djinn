@@ -113,11 +113,15 @@ fi
 
 # Run the decoding in the queue
 if [ $stage -le 0 ]; then
-  $cmd $parallel_opts JOB=1:$nj $dir/log/decode.JOB.log \
-  nnet-forward --djinn=$djinn --hostname=$hostname --portno=$portno --feature-transform=$feature_transform --class-frame-counts=$class_frame_counts --gpu=$gpu --common=$common --network=$network --weight=$weight "$feats" ark:- \| \
-  latgen-faster-mapped$thread_string --min-active=$min_active --max-active=$max_active --max-mem=$max_mem --beam=$beam \
-    --lattice-beam=$lattice_beam --acoustic-scale=$acwt --allow-partial=true --word-symbol-table=$graphdir/words.txt \
-    $model $graphdir/HCLG.fst ark:- "ark:|gzip -c > $dir/lat.JOB.gz" || exit 1;
+ $cmd $parallel_opts JOB=1:$nj $dir/log/decode.JOB.log \
+  nnet-forward --djinn=$djinn --hostname=$hostname --portno=$portno \
+ --feature-transform=$feature_transform \
+ --class-frame-counts=$class_frame_counts --gpu=$gpu --common=$common \
+ --network=$network --weight=$weight "$feats" ark:-
+ # \| \
+#  latgen-faster-mapped$thread_string --min-active=$min_active --max-active=$max_active --max-mem=$max_mem --beam=$beam \
+#    --lattice-beam=$lattice_beam --acoustic-scale=$acwt --allow-partial=true --word-symbol-table=$graphdir/words.txt \
+#    $model $graphdir/HCLG.fst ark:- "ark:|gzip -c > $dir/lat.JOB.gz" || exit 1;
 fi
 
 # Run the scoring

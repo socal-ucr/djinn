@@ -255,11 +255,13 @@ int main(int argc, char* argv[]) {
   	int fState = vm["clock"].as<int>();
   	if (fState != -1)
 	{
-		int current_uid = getuid();
-		setuid(0);
 		nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
-		setuid(current_uid);
 	}
+    else
+    {
+        nvmlDeviceSetAutoBoostedClocksEnabled(device,NVML_FEATURE_ENABLED);
+    }
+
   // load all models at init
   net_common   = vm["common"].as<string>();
   net_filename = vm["nets"].as<string>();
@@ -293,7 +295,7 @@ int main(int argc, char* argv[]) {
         LOG(INFO) << "Could not create out file";
 	return 0;
     }
-    std::string header = "Time,Name,Queue,Reshape,GPU\n";
+    std::string header = "Time,Name,Queue,Reshape,GPU,end\n";
     
     fwrite(header.c_str(),sizeof(char),header.length(),logFile);
     fflush(logFile);

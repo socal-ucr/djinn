@@ -45,6 +45,7 @@ struct Request
     unsigned int queueTime;
     unsigned int reshapeTime;
     unsigned int GPUTime;
+    unsigned int endTime;
 };
 
 map<pthread_t,int> condMap;
@@ -127,6 +128,7 @@ void * GPU_handler(void * args)
 
         clock_gettime(CLOCK_MONOTONIC,&tEnd);
 
+        current_req.endTime = (tEnd.tv_sec * 1000000ul) + (tEnd.tv_nsec / 1000ul);
         current_req.GPUTime = (tEnd.tv_sec * 1000000ul) + (tEnd.tv_nsec / 1000ul);
         current_req.GPUTime -= (tStart.tv_sec * 1000000ul) + (tStart.tv_nsec / 1000ul);
 
@@ -162,7 +164,8 @@ void * response_handler(void * args)
                              current_req.req_name + "," +
                              std::to_string(current_req.queueTime) + "," +
                              std::to_string(current_req.reshapeTime) + "," +
-                             std::to_string(current_req.GPUTime) + "\n";
+                             std::to_string(current_req.GPUTime) + "," +
+                             std::to_string(current_req.endTime) + "\n";
         
         fwrite(output.c_str(),sizeof(char),output.length(),logFile);
         fflush(logFile);

@@ -62,8 +62,7 @@ void* sender_thread(void *args)
     
     usleep(1000000);
     for(unsigned int i=0; i < total_requests; i++)
-    {  
-
+    {
         SOCKET_send(socketfd, (char*)&app.pl.req_name, MAX_REQ_SIZE, 0);
         // send len
         SOCKET_txsize(socketfd, app.pl.num * app.pl.size);
@@ -71,7 +70,6 @@ void* sender_thread(void *args)
         // send image(s)
         SOCKET_send(socketfd, (char*)app.pl.data,
                 app.pl.num * app.pl.size * sizeof(float), 0);
-
         usleep(distribution[i]);
     }
 

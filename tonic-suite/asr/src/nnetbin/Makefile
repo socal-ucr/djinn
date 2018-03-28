@@ -19,8 +19,8 @@ include ../kaldi.mk
 
 LDFLAGS += $(CUDA_LDFLAGS) -L/usr/lib/x86_64-linux-gnu/hdf5/serial/
 LDLIBS += $(CUDA_LDLIBS) $(COMMON)/libtonic.a \
-					/home/wong936/djinn/caffe-1.0/$(CAFFE)/lib/libcaffe.so \
-					-lglog
+					/home/wong936/djinn/caffe/$(CAFFE)/lib/libcaffe.so \
+					-lglog -lboost_system
 
 
 BINFILES = nnet-train-frmshuff \

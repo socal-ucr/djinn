@@ -20,23 +20,23 @@ target_dir=$dnn_dir/decode_local
 spk=DeepBlue-20121003-jmk
 
 # arguments to pass in
-djinn=0 # Use DjiNN service ?
+djinn=1 # Use DjiNN service ?
 hostname=localhost # server hostname
-portno=8080 # server port
+portno=$1 # server port
 common=../../../../../common/
 network=asr.prototxt
 weight=asr.caffemodel
 input=asr-list.txt
 gpu=0 # Use GPU for local inference ?
 
-. parse_options.sh || exit 1;
+#. parse_options.sh || exit 1;
 # Prepare data
 # move the input into the folder
 # NOTE: remove the input file already in there
 #rm ${root_dataset}/selected/${spk}/wav/*
 
 input=../../../${input}
-
+: '
 while read line;do
   cp ../../../${line} ${root_dataset}/selected/${spk}/wav/
 done < ${input}
@@ -75,6 +75,7 @@ then
   cat exp/data-fmllr-tri3b/local/log/make_fmllr_feats.1.log
   exit 1
 fi
+'
 
 # Running decode
 steps/nnet/decode.sh --djinn $djinn --hostname $hostname --portno $portno --gpu $gpu \
@@ -83,6 +84,7 @@ steps/nnet/decode.sh --djinn $djinn --hostname $hostname --portno $portno --gpu 
                     --common $common --network $network --weight $weight \
                     $graph_dir/graph/ $data_dir $target_dir;
 
+: '
 if [ $? != 0 ];
 then
   echo "ERROR LOG FOLLOWING:"
@@ -110,3 +112,4 @@ while read wav;do
 done < ${input}
 
 cd $PWD
+'

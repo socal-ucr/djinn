@@ -61,9 +61,38 @@ CuMatrix<BaseFloat> feats, feats_transf, nnet_out;
 volatile int socketfd = -1;
 void* sender_thread(void *args)
 {
+
+        ifstream inFile;
+        inFile.open("distribution.txt");
+
+        if(!inFile)
+        {
+            printf("No distribution file\n");
+            printf("\tWorkdir: %s\n", getenv("PWD"));
+            exit(1);
+        }
+
+
+        float x;
+        int i = 0;
+        while(inFile >> x)
+            distribution.push_back((unsigned int)(x*1000000.0f));
+        total_requests = distribution.size();
+
     app.socketfd = CLIENT_init((char *)app.hostname.c_str(), app.portno, debug);
     socketfd = 1;
-    //printf("Start Thread:%d\n",socketfd);
+
+    //warmup
+        SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
+
+        // Send data length
+        SOCKET_txsize(app.socketfd, offset);
+
+        // Send features
+        SOCKET_send(app.socketfd, (char *)app.pl.data, offset * sizeof(float),
+                  debug);
+
+    usleep(1000000);
     for(unsigned int i=0; i < total_requests; i++)
     {  
         SOCKET_send(app.socketfd, (char *)&app.pl.req_name, MAX_REQ_SIZE, debug);
@@ -75,11 +104,10 @@ void* sender_thread(void *args)
         SOCKET_send(app.socketfd, (char *)app.pl.data, offset * sizeof(float),
                   debug);
 
-        //usleep(distribution[i]);
-        usleep(100000);
+        usleep(distribution[i]);
     }
 
-    //printf("Close Sender\n");
+    printf("Close Sender\n");
 
     return NULL;
 }
@@ -89,7 +117,7 @@ void * reciever_thread(void *args)
     //printf("BEFORE:%d\n",app.socketfd);
     while(socketfd == -1) {};
     //printf("RECIEVING\n");
-    for(unsigned int i = 0; i < total_requests;i++)
+    for(unsigned int i = 0; i < total_requests+1;i++)
     {
       int total_rcvd = 0;
       for (int feat_idx = 0; feat_idx < feats_row_cnt.size(); feat_idx++) {
@@ -160,6 +188,7 @@ int main(int argc, char *argv[]) {
     po.Read(argc, argv);
 
     if (po.NumArgs() != 2) {
+        printf("NUMARGS:%d\n",po.NumArgs());
       po.PrintUsage();
       exit(1);
     }
@@ -185,9 +214,9 @@ int main(int argc, char *argv[]) {
       app.portno = portno;
       app.socketfd = -1;
     } else {
-      app.net = new Net<float>(app.network);
+      app.net = new Net<float>(app.network,caffe::TEST);
       app.net->CopyTrainedLayersFrom(app.weights);
-      Caffe::set_phase(Caffe::TEST);
+     // Caffe::set_phase(Caffe::TEST);
       if (app.gpu)
         Caffe::set_mode(Caffe::GPU);
       else
