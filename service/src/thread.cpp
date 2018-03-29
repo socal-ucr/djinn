@@ -31,22 +31,8 @@
 #include "thread.h"
 #include <map>
 #include <list>
+#include "shared_mq.hpp"
 
-struct Request
-{
-    unsigned long time;
-    int socknum;
-    char req_name[MAX_REQ_SIZE];
-    int sock_elts;
-    int in_elts;
-    int out_elts;
-    float* in;
-    float* out;
-    unsigned int queueTime;
-    unsigned int reshapeTime;
-    unsigned int GPUTime;
-    unsigned int endTime;
-};
 
 map<pthread_t,int> condMap;
 extern map<string, Net<float>*> nets;
@@ -202,6 +188,7 @@ void* request_handler(void* sock)
     struct timespec time;
     int rcvd;
     Caffe::SetDevice(gpu);
+    int currentDevice = 0;
     while (1) 
     {
         struct Request req;
@@ -246,6 +233,7 @@ void* request_handler(void* sock)
         pthread_cond_broadcast(&GPU_handle_cond);
         pthread_mutex_unlock(&queue_mutex);
 
+        currentDevice = (currentDevice + 1) % numColocate;
     }
 
     // Exit the thread

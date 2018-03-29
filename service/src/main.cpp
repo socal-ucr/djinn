@@ -34,6 +34,7 @@
 #include "tonic.h"
 #include <sys/types.h>
 #include <unistd.h>
+#include "shared_mq.hpp"
 
 //P100
 
@@ -44,7 +45,7 @@ map<string, Net<float>*> nets;
 bool debug;
 int gpu;
 int TBLimit;
-
+int numColocate;
 std::string net_common;
 std::string net_filename;
 std::string net_weights;
@@ -78,7 +79,6 @@ unsigned int memClockCount = 4;
 unsigned long START_TIME;
 void  INThandler(int sig)
 {
-
     signal(sig, SIG_IGN);
     printf("CLEAN UP\n");
     nvmlShutdown();
@@ -180,7 +180,10 @@ po::variables_map parse_opts(int ac, char** av) {
       "power,po", po::value<bool>()->default_value(true),
       "Collect Power stats")(
       "colocate,co", po::value<int>()->default_value(1),
-      "Num of colacted requests")
+      "Num of colacted requests")(
+      "framework,f", po::value<int>()->default_value(-1),
+      "If running framework/instance ID")
+
       ("nets,n", po::value<string>()->default_value("nets.txt"),
        "File with list of network configs (.prototxt/line)")(
           "weights,w", po::value<string>()->default_value("weights/"),
@@ -203,6 +206,221 @@ po::variables_map parse_opts(int ac, char** av) {
   }
   return vm;
 }
+#define MAX_QUEUE_SIZE 100
+#define MAX_INSTANCES 16
+po::variables_map vm;
+shmemList *GPUSend;
+shmemList *GPURespond;
+boost::interprocess::interprocess_mutex *GPUMutex;
+boost::interprocess::interprocess_mutex *respondMutex;
+boost::interprocess::interprocess_condition  *GPU_cond;
+boost::interprocess::interprocess_condition  *respond_cond;
+int GPU_Instance() {
+    debug = vm["debug"].as<bool>();
+    TBLimit = vm["tbrf"].as<int>();
+    gpu = vm["gpu"].as<int>();
+    if (gpu != -1)
+    {
+        Caffe::SetDevice(gpu);
+        Caffe::set_mode(Caffe::GPU);
+        Caffe::set_tblimit(TBLimit);
+    }
+    else
+        Caffe::set_mode(Caffe::CPU);
+
+    // load all models at init
+    net_common   = vm["common"].as<string>();
+    net_filename = vm["nets"].as<string>();
+    net_weights  = vm["weights"].as<string>();
+    ifstream file(net_filename.c_str());
+    string net_name;
+    while (file >> net_name) {
+        string net =  net_common + "configs/" + net_name;
+        Net<float>* temp = new Net<float>(net,caffe::TEST);
+        const std::string name = temp->name();
+        nets[name] = temp;
+        std::string weights = net_common + net_weights + name + ".caffemodel";
+        nets[name]->CopyTrainedLayersFrom(weights);
+    }
+
+    numColocate = vm["colocate"].as<int>();
+
+    // Main Loop
+    pthread_t* GPU_thread = (pthread_t*)malloc(numColocate * sizeof(pthread_t));
+    int error;
+    int InstanceId = vm["framework"].as<int>();
+    for(int i = 0; i < numColocate; i ++)
+    {
+        error = pthread_create(&(GPU_thread[i]), NULL, GPU_handler, (void*)(intptr_t)InstanceId);
+        if(error != 0)
+        {
+            LOG(ERROR) << "Failed to create a GPU handler thread.\nERROR:" << error << "\n";
+            exit(1);
+        }
+    } 
+    for(int i = 0; i < numColocate; i ++)
+        pthread_join(GPU_thread[i],NULL);
+
+    return 0;
+}
+
+int framework() {
+    //initialize nvml
+    nvmlChkError(nvmlInit(), "nvmlInit");   
+    // Main thread for the server
+    // Spawn a new thread for each request
+    debug = vm["debug"].as<bool>();
+    TBLimit = vm["tbrf"].as<int>();
+    gpu = vm["gpu"].as<int>();
+    numColocate = vm["colocate"].as<int>();
+    Caffe::SetDevice(gpu);
+
+    //setup NVML
+    nvmlReturn_t result;
+    unsigned int device_count;
+    nvmlDevice_t device;
+    unsigned int pciBusID, pciDeviceID,pciDomainID;
+    Caffe::getDevicePCIinfo(pciBusID,pciDeviceID,pciDomainID);
+    nvmlChkError(nvmlDeviceGetCount(&device_count), "DeviceGetCount");
+    for (unsigned int nvmlDeviceIdx= 0; nvmlDeviceIdx < device_count; ++nvmlDeviceIdx)
+    {
+        nvmlChkError(nvmlDeviceGetHandleByIndex(nvmlDeviceIdx, &device), "GetHandle");
+
+    	nvmlPciInfo_t nvmPCIInfo;
+    	nvmlChkError(nvmlDeviceGetPciInfo ( device, &nvmPCIInfo ),"GetPciInfo");
+    
+    	if ( pciBusID == nvmPCIInfo.bus && 
+			 pciDeviceID == nvmPCIInfo.device &&
+		     pciDomainID == nvmPCIInfo.domain )
+        	break;
+    }
+
+    //get graphics clock info
+    nvmlChkError(nvmlDeviceGetSupportedMemoryClocks(device,&memClockCount,memClocksMHz),"GetMemClocks");
+    for(int i = 0; i < memClockCount; i++)
+        nvmlChkError(nvmlDeviceGetSupportedGraphicsClocks(device,memClocksMHz[i],&graphicClockCount[i],graphicClocksMHz[i]),"GetGraphicsClocks");
+  	int fState = vm["clock"].as<int>();
+  	if (fState != -1)
+		nvmlChkError(nvmlDeviceSetApplicationsClocks(device, memClocksMHz[0], graphicClocksMHz[0][F_STATES[fState]]),"SetClocks");
+    else
+        nvmlDeviceSetAutoBoostedClocksEnabled(device,NVML_FEATURE_ENABLED);
+
+    // load all models at init
+    net_common   = vm["common"].as<string>();
+    net_filename = vm["nets"].as<string>();
+    net_weights  = vm["weights"].as<string>();
+    ifstream file(net_filename.c_str());
+    string net_name;
+    while (file >> net_name)
+    {
+        string net =  net_common + "configs/" + net_name;
+        Net<float>* temp = new Net<float>(net,caffe::TEST);
+        const std::string name = temp->name();
+        nets[name] = temp;
+        std::string weights = net_common + net_weights + name + ".caffemodel";
+        nets[name]->CopyTrainedLayersFrom(weights);
+    }
+
+  // how many threads to spawn before exiting
+  // -1 to stay indefinitely open
+  int total_thread_cnt = vm["threadcnt"].as<int>();
+  int socketfd = SERVER_init(vm["portno"].as<int>());
+  bool POWER = vm["power"].as<bool>();
+  // Listen on socket
+  listen(socketfd, 1000);
+  LOG(INFO) << "Server is listening for requests on " << vm["portno"].as<int>();
+
+    //Create log file
+    outfileName = vm["outfile"].as<string>() + ".out";
+    logFile = fopen(outfileName.c_str(),"w");
+    if(logFile == NULL)
+    {
+        LOG(INFO) << "Could not create out file";
+	return 0;
+    }
+    std::string header = "Time,Name,Queue,Reshape,GPU,end\n";
+    
+    fwrite(header.c_str(),sizeof(char),header.length(),logFile);
+    fflush(logFile);
+    
+    pthread_t t_rp;
+    // Main Loop
+    int thread_cnt = 0;
+
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC,&time);
+    START_TIME = (time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul);
+
+    std::vector<pthread_t> threads;
+    
+    pthread_t response_thread;
+    int error = pthread_create(&response_thread, NULL, response_handler, NULL);
+    if(error != 0)
+    {
+        LOG(ERROR) << "Failed to create a response handler thread.\nERROR:" << error << "\n";
+        exit(1);
+    }
+
+    //construct Shared memory
+    struct shm_remove
+    {
+        shm_remove() {boost::interprocess::shared_memory_object::remove("MySharedMemory");}
+        ~shm_remove(){boost::interprocess::shared_memory_object::remove("MySharedMemory");}
+    } remover;
+
+    boost::interprocess::managed_shared_memory segment(boost::interprocess::create_only,"MySharedMemory",4294967296);
+    const ShmemAllocator alloc_inst (segment.get_segment_manager());
+
+    GPUSend = segment.construct<shmemList>("GPUSend")[MAX_INSTANCES](alloc_inst);
+    GPURespond = segment.construct<shmemList>("GPURespond")[MAX_INSTANCES](alloc_inst);
+    GPUMutex = segment.construct<boost::interprocess::interprocess_mutex>("GPUMutex")[MAX_INSTANCES]();
+    respondMutex = segment.construct<boost::interprocess::interprocess_mutex>("respondMutex")[MAX_INSTANCES]();
+    GPU_cond = segment.construct<boost::interprocess::interprocess_condition>("GPU_cond")[MAX_INSTANCES]();
+    respond_cond = segment.construct<boost::interprocess::interprocess_condition>("respond_cond")[MAX_INSTANCES]();
+
+    while (1) 
+    {
+        pthread_t new_thread_id;
+        int client_sock = accept(socketfd, (sockaddr*)0, (unsigned int*)0);
+
+        if (client_sock == -1)
+        {
+            int errsv = errno;
+
+            LOG(ERROR) << "Failed to accept.\n";
+            LOG(ERROR) << errsv;
+            LOG(ERROR) << thread_cnt;
+            break;
+        }
+        else
+        {
+            new_thread_id = request_thread_init(client_sock);
+            threads.push_back(new_thread_id);
+            if(thread_cnt == 0 && POWER)
+                pthread_create(&t_rp, NULL, record_power, &device);
+            ++thread_cnt;
+        }
+
+        if (thread_cnt == total_thread_cnt)
+        {
+            for(int i = 0; i < thread_cnt; i++)
+            if (pthread_join(threads[i], NULL) != 0)
+                LOG(FATAL) << "Failed to join.\n";
+            break;
+        }
+    }
+
+    pthread_cancel(response_thread);
+    if(POWER)
+    {
+        kill_power_t = true;
+        pthread_join(t_rp,NULL);
+    }
+    fclose(logFile);
+    nvmlShutdown();
+    return 0;
+}
+
 
 int main(int argc, char* argv[]) {
     signal(SIGINT, INThandler);
@@ -309,9 +527,7 @@ int main(int argc, char* argv[]) {
     START_TIME = (time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul);
 
     std::vector<pthread_t> threads;
-
     pthread_t* GPU_thread = (pthread_t*)malloc(numColocate * sizeof(pthread_t));
-
     int error;
     for(int i = 0; i < numColocate; i ++)
     {
@@ -331,6 +547,7 @@ int main(int argc, char* argv[]) {
         LOG(ERROR) << "Failed to create a response handler thread.\nERROR:" << error << "\n";
         exit(1);
     }
+
     while (1) 
     {
         pthread_t new_thread_id;
