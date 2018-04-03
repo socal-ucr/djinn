@@ -39,7 +39,7 @@ extern map<string, Net<float>*> nets;
 extern bool debug;
 extern FILE * logFile;
 extern pthread_rwlock_t output_rwlock;
-
+extern int numColocate;
 
 extern int gpu;
 extern int TBLimit;
@@ -53,15 +53,22 @@ std::list<Request> GPU_queue;
 pthread_mutex_t response_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t response_handle_cond = PTHREAD_COND_INITIALIZER;
 std::list<Request> response_queue;
-
 extern unsigned long START_TIME;
-
-
 pthread_mutex_t Caffe_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+//Interprocess members
+extern shmemList *GPUSend;
+extern shmemList *GPURespond;
+extern boost::interprocess::interprocess_mutex *GPUMutex;
+extern boost::interprocess::interprocess_mutex *respondMutex;
+extern boost::interprocess::interprocess_condition  *GPU_cond;
+extern boost::interprocess::interprocess_condition  *respond_cond;
+
 void * GPU_handler(void * args)
 {
-    map<string, Net<float>*> net_map;
+    int PID = (intptr_t)args;
 
+    map<string, Net<float>*> net_map;
     pthread_mutex_lock(&Caffe_mutex);
         Caffe::SetDevice(gpu);
         Caffe::set_mode(Caffe::GPU);
@@ -82,15 +89,17 @@ void * GPU_handler(void * args)
     struct timespec tStart, tEnd;
     while(1)
     {
-        pthread_mutex_lock(&queue_mutex);
+        boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(GPUMutex[PID]);
         
-        while(GPU_queue.empty())
-            pthread_cond_wait(&GPU_handle_cond,&queue_mutex);
+        while(GPUSend[PID].empty())
+            GPU_cond[PID].wait(lock);
 
         //get data from queue
-        struct Request current_req = GPU_queue.front();
-        GPU_queue.pop_front();
-        pthread_mutex_unlock(&queue_mutex);
+        struct Request current_req = GPUSend[PID].front();
+        GPUSend[PID].pop_front();
+
+        lock.unlock();
+
         clock_gettime(CLOCK_MONOTONIC,&tEnd);
         current_req.queueTime = ((tEnd.tv_sec * 1000000ul) + tEnd.tv_nsec / 1000ul) - current_req.time;
 
@@ -124,25 +133,27 @@ void * GPU_handler(void * args)
             memcpy(current_req.out, out_blobs[0]->cpu_data(), current_req.out_elts * sizeof(float));
 
         //Add to queue
-        pthread_mutex_lock(&response_queue_mutex);
-        response_queue.push_back(current_req);
-        pthread_cond_signal(&response_handle_cond);
-        pthread_mutex_unlock(&response_queue_mutex);
+        boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> rlock(respondMutex[PID]);
+        GPURespond[PID].push_back(current_req);
     }
 }
 
 void * response_handler(void * args)
 {
+    int currentDevice = 0;
     while(1)
     {
-        pthread_mutex_lock(&response_queue_mutex);
-        while(response_queue.empty())
-            pthread_cond_wait(&response_handle_cond,&response_queue_mutex);
 
+        boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(respondMutex[currentDevice]);
+        if(GPURespond[currentDevice].empty())
+        {
+            currentDevice = (currentDevice + 1) % MAX_INSTANCES;
+            continue;
+        }
         //get data from queue
-        struct Request current_req = response_queue.front();
-        response_queue.pop_front();
-        pthread_mutex_unlock(&response_queue_mutex);
+        struct Request current_req = GPURespond->front();
+        GPURespond[currentDevice].pop_front();
+        lock.unlock();
 
         SOCKET_send(current_req.socknum, (char*)current_req.out, current_req.out_elts * sizeof(float), debug);
 
@@ -155,7 +166,7 @@ void * response_handler(void * args)
         
         fwrite(output.c_str(),sizeof(char),output.length(),logFile);
         fflush(logFile);
-
+        currentDevice = (currentDevice + 1) % MAX_INSTANCES;
     }
 }
 
@@ -228,11 +239,9 @@ void* request_handler(void* sock)
 
         req.time = ((time.tv_sec * 1000000ul) + (time.tv_nsec/1000ul));
         //Add to queue
-        pthread_mutex_lock(&queue_mutex);
-        GPU_queue.push_back(req);
-        pthread_cond_broadcast(&GPU_handle_cond);
-        pthread_mutex_unlock(&queue_mutex);
-
+        boost::interprocess::scoped_lock<boost::interprocess::interprocess_mutex> lock(GPUMutex[currentDevice]);
+        GPUSend[currentDevice].push_back(req);
+        GPU_cond[currentDevice].notify_all();
         currentDevice = (currentDevice + 1) % numColocate;
     }
 
